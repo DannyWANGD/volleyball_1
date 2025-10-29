@@ -1,0 +1,66 @@
+# 通用系统/临时文件
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Keil uVision / MDK-ARM 构建产物
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.sct
+*.d
+*.o
+*.obj
+*.lst
+*.crf
+*.dep
+*.lin
+
+# Keil 用户相关文件与日志（不需要版本管理）
+*.uvoptx
+*.uvguix.*
+uv4.log
+uv4.log.lock
+JLinkLog.txt
+
+# Keil 生成目录（编译输出）
+MDK-ARM/build/
+MDK-ARM/**/Objects/
+MDK-ARM/**/Listings/
+MDK-ARM/DebugConfig/
+MDK-ARM/RTE/
+
+# eide 本地环境（机器相关）
+MDK-ARM/.eide/env.ini
+
+# VS Code 工作区（保留 .vscode 配置但忽略工作区文件）
+*.code-workspace
+
+# 通用构建目录
+build/
+out/
+bin/
+obj/
+
+# STM32CubeMX 自动保存
+*.ioc.autosave
+
+# MDK-ARM/testa1 目录下的构建产物
+MDK-ARM/testa1/*.o
+MDK-ARM/testa1/*.d
+MDK-ARM/testa1/*.axf
+MDK-ARM/testa1/*.hex
+MDK-ARM/testa1/*.map
+MDK-ARM/testa1/*.lnp
+MDK-ARM/testa1/*.sct
+MDK-ARM/testa1/testa1_sct.Bak
+
+# 保留关键工程文件
+!testa1.ioc
+!MDK-ARM/testa1/testa1.uvprojx
+!MDK-ARM/startup_stm32f427xx.s
