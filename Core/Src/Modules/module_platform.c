@@ -397,7 +397,7 @@ void Platform_Set_Target_Pos(float x,float y,float z,float pitch,float yaw,float
 	LimitMaxMin(Platform->tar.plat_z,0.37f,0.10f);
 	LimitMaxMin(Platform->tar.plat_pitch,10,-30);
 	LimitMaxMin(Platform->tar.plat_yaw,30,-30);
-	LimitMaxMin(Platform->tar.plat_roll,10,-10);
+	LimitMaxMin(Platform->tar.plat_roll,20,-20);
 
 }
 

@@ -47,7 +47,7 @@ typedef struct {
 // 包含遥控器的通道数据、开关状态、鼠标数据、键盘数据以及遥控器的状态信息
 typedef struct {
     struct {
-        int16_t                 ch[5];  //Channel 0 channel 1 channel 2 channel 3 paddle wheel
+        int16_t                 ch[5];  //ch[0] 右侧左右、ch[1] 右侧上下、ch[2] 左侧左右、ch[3] 左侧上下
         Remote_SwitchStateEnum  s[2];   //Switch 0 switch 1
     } remote;
 

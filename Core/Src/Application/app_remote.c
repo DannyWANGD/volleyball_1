@@ -26,12 +26,11 @@ Remote_RemoteControlTypeDef Remote_remoteControlData;
   * @retval         NULL
   */
 void Remote_Task(void const * argument) {
- 
-    for(;;) {
-           Remote_ControlCom();
+  for(;;) {
+    Remote_ControlCom();
 
-        osDelay(2);
-    }
+    osDelay(2);
+  }
 }
 
 
@@ -68,19 +67,19 @@ void Remote_ControlCom() {
 
     switch (data->remote.s[0]) {
         case Remote_SWITCH_UP: {       //jiefa
-      Remote_RemoteProcess();          
-            break;
+          Remote_RemoteProcess();          
+          break;
         }
         case Remote_SWITCH_MIDDLE: {
-      Remote_RemoteProcessPlus();			//chuanqiu  
-            break;
+          Remote_RemoteProcessPlus();			//chuanqiu  
+          break;
         }
         case Remote_SWITCH_DOWN: {    //dianqiu
-      Remote_NucProcess();   
-            break;
+          Remote_NucProcess();   
+          break;
         }
         default:
-            break;
+          break;
     }
     control_data->pending = 0;
 }
@@ -102,7 +101,7 @@ void Remote_RemoteProcess() {
 		// 完全交由上位机控制
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Jiefa);	
-			Chassis_SetControlMode(Chassis_PC);   
+			Chassis_SetControlMode(Chassis_PC);
 			break;
     }
 		// 完全交由遥控器控制
@@ -140,7 +139,7 @@ void Remote_RemoteProcessPlus() {
   switch (data->remote.s[1]) {
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Chuanqiu);
-      Platform_Set_Target_Pos(0, 0, data->remote.ch[1] * 0.25 / 660.0f + 0.32f, data->remote.ch[2] * 30.0f / 660.0f, 0, data->remote.ch[3] * 30.0f / 660.0f);
+      Platform_Set_Target_Pos(0, 0, data->remote.ch[1] * 0.15 / 660.0f + 0.12f, data->remote.ch[2] * 30.0f / 660.0f, 0, data->remote.ch[3] * 60.0f / 660.0f);
       Chassis_Set_Speed(Chassis_Lock, 0, 0, 0);
       break;
     }

@@ -20,6 +20,7 @@ Thumbs.db
 *.crf
 *.dep
 *.lin
+*.lib
 
 # Keil 用户相关文件与日志（不需要版本管理）
 *.uvoptx
@@ -59,6 +60,7 @@ MDK-ARM/testa1/*.map
 MDK-ARM/testa1/*.lnp
 MDK-ARM/testa1/*.sct
 MDK-ARM/testa1/testa1_sct.Bak
+MDK-ARM/testa1/*.htm
 
 # 保留关键工程文件
 !testa1.ioc
