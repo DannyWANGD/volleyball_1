@@ -102,6 +102,7 @@ void Remote_RemoteProcess() {
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Jiefa);	
 			Chassis_SetControlMode(Chassis_PC);
+      Platform_Set_Hitting_Pose(10, 0, 0, 3);
 			break;
     }
 		// 完全交由遥控器控制

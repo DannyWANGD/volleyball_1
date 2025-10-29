@@ -123,6 +123,10 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
 void Platform_Dianqiu_Cal(float hit,uint8_t distance);
 void Platform_Jiefa_Cal(float hit);
 void Platform_Check();
+void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitting_speed);
+void Platform_Hitting_Pose_Update(void);
+uint8_t Platform_Get_Hitting_State(void);
+void Platform_Reset_Hitting_State(void);
 #endif
 
 #ifdef __cplusplus

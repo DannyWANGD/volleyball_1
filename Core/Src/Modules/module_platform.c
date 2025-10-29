@@ -48,7 +48,7 @@ void Platform_Init() {
 	Platform->fdb.plat_roll = 0;
 	Platform->tar.plat_x = 0;
 	Platform->tar.plat_y = 0;
-	Platform->tar.plat_z = 0.15;
+	Platform->tar.plat_z = 0.1;
 	Platform->tar.plat_pitch = 0;
 	Platform->tar.plat_yaw = 0;
 	Platform->tar.plat_roll = 0;
@@ -118,6 +118,13 @@ float start_hit_time = 0.0f;
 float start_back_time = 0.0f;
 uint8_t finishhit = 1; //击球动作的状态标志，0为击球中，1为击打已完成
 float l_tar = 0.13f;
+
+// 新增：击球位姿控制相关变量
+static float hitting_start_time = 0.0f;
+static float hitting_return_time = 0.0f;
+static uint8_t hitting_state = 0; // 0-空闲, 1-击球中, 2-回位中
+static float target_roll = 0.0f, target_pitch = 0.0f, target_yaw = 0.0f;
+static uint8_t target_speed = 2;
 
 uint8_t output_state;
 uint64_t last_output_time;
@@ -608,5 +615,120 @@ void Platform_Output() {
 	// last_output_time = DWT_GetTimeline_us();
 	
   }
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * @brief      击球板位姿控制函数（带自动回位功能）
+ * @param      roll: 击球板期望的横滚角 (度)
+ * @param      pitch: 击球板期望的俯仰角 (度) 
+ * @param      yaw: 击球板期望的偏航角 (度)
+ * @param      hitting_speed: 期望的击球速度等级 (1-慢速, 2-中速, 3-快速)
+ * @retval     None
+ * @note       该函数设置击球板的空间位姿，击球后自动以慢速回到初始位置
+ */
+void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitting_speed) {
+    
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    
+    // 如果当前处于空闲状态，开始新的击球动作
+    if (hitting_state == 0) {
+        // 保存目标参数
+        target_roll = roll;
+        target_pitch = pitch;
+        target_yaw = yaw;
+        target_speed = hitting_speed;
+        
+        // 开始击球动作
+        hitting_state = 1;
+        hitting_start_time = DWT_GetTimeline_s();
+        
+        // 设置击球位姿：x=y=0, z=0.2，以及传入的roll、pitch、yaw
+        Platform_Set_Target_Pos(0.0f, 0.0f, 0.2f, pitch, yaw, roll);
+        
+        // 根据击球速度参数设置输出状态
+        switch (hitting_speed) {
+            case 1:  // 慢速击球
+                Platform_Set_OutputState(Platform_slow);
+                break;
+            case 2:  // 中速击球  
+                Platform_Set_OutputState(Platform_middle);
+                break;
+            case 3:  // 快速击球
+                Platform_Set_OutputState(Platform_fast);
+                break;
+            default: // 默认中速
+                Platform_Set_OutputState(Platform_middle);
+                break;
+        }
+        
+        // 调用逆运动学解算函数，计算各电机目标角度并启动闭环控制
+        Platform_Cal_3Degree_IK_Output();
+    }
+}
+
+/**
+ * @brief      击球位姿控制状态机（需要在主循环中调用）
+ * @param      None
+ * @retval     None
+ * @note       管理击球动作的完整流程：击球 -> 保持 -> 回位 -> 冷却
+ */
+void Platform_Hitting_Pose_Update(void) {
+    
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    float current_time = DWT_GetTimeline_s();
+    
+    switch (hitting_state) {
+        case 1: // 击球中
+            if (current_time - hitting_start_time >= 0.8f) { // 击球动作持续0.8秒
+                // 开始回位
+                hitting_state = 2;
+                hitting_return_time = current_time;
+                
+                // 设置回到初始位置：x=y=0, z=0.13, roll=pitch=yaw=0
+                Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+                Platform_Set_OutputState(Platform_slow); // 慢速回位
+                Platform_Cal_3Degree_IK_Output();
+            }
+            break;
+            
+        case 2: // 回位中
+            if (current_time - hitting_return_time >= 1.5f) { // 回位和冷却总共1.5秒
+                // 回位完成，进入空闲状态
+                hitting_state = 0;
+                
+                // 确保在初始位置
+                Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+                Platform_Set_OutputState(Platform_middle);
+                Platform_Cal_3Degree_IK_Output();
+            }
+            break;
+            
+        case 0: // 空闲状态
+        default:
+            // 保持在初始位置
+            Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+            Platform_Set_OutputState(Platform_middle);
+            break;
+    }
+}
+
+/**
+ * @brief      获取当前击球状态
+ * @param      None
+ * @retval     击球状态 (0-空闲, 1-击球中, 2-回位中)
+ */
+uint8_t Platform_Get_Hitting_State(void) {
+    return hitting_state;
+}
+
+/**
+ * @brief      重置击球状态到空闲
+ * @param      None
+ * @retval     None
+ */
+void Platform_Reset_Hitting_State(void) {
+    hitting_state = 0;
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////
