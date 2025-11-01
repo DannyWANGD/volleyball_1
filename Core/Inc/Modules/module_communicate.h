@@ -29,18 +29,18 @@ typedef enum {
 typedef struct {
     Protocol_CommStateEnum state;
 
-    uint8_t usb_watchBuff[PROTOCOL_RECEIVE_BUFF_LEN];
-    uint8_t usb_sendBuff[PROTOCOL_SEND_BUFF_LEN];
-	  uint8_t uart_watchBuff[PROTOCOL_RECEIVE_BUFF_LEN];
+    uint8_t usb_watchBuff[PROTOCOL_RECEIVE_BUFF_LEN];   // USB receive buffer
+    uint8_t usb_sendBuff[PROTOCOL_SEND_BUFF_LEN];       // USB send buffer
+    uint8_t uart_watchBuff[PROTOCOL_RECEIVE_BUFF_LEN];  // UART receive buffer
 
-    uint32_t last_rx_tick;
-    float rx_dt;
+    uint32_t last_rx_tick;          // last receive time tick
+    float rx_dt;                    // delta time since last receive
 
-    uint32_t last_tx_tick;
-    float tx_dt;
+    uint32_t last_tx_tick;          // last transmit time tick
+    float tx_dt;                    // delta time since last transmit
 
-    uint32_t last_gim_rx_tick;
-    float gim_rx_dt;
+    uint32_t last_gim_rx_tick;      // last gimbal receive time tick
+    float gim_rx_dt;                // delta time since last gimbal receive
 } Protocol_DataTypeDef;
 
 extern Protocol_DataTypeDef Protocol_Data;
