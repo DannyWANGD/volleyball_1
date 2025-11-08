@@ -305,7 +305,7 @@ void Communicate_RXCallback(UART_HandleTypeDef* huart) {
     /* handle uart data from DMA */
     int rxdatalen = Const_Com_RX_BUFF_LEN - Uart_DMACurrentDataCounter(huart->hdmarx->Instance);
     
-	Protocol_DecodeData(com->uart_watchBuff,rxdatalen);
+	// Protocol_DecodeData(com->uart_watchBuff,rxdatalen);
 	
     /* restart dma transmission */
     __HAL_DMA_SET_COUNTER(huart->hdmarx, Const_Com_RX_BUFF_LEN);

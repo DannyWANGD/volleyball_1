@@ -48,7 +48,7 @@ void Platform_Init() {
 	Platform->fdb.plat_roll = 0;
 	Platform->tar.plat_x = 0;
 	Platform->tar.plat_y = 0;
-	Platform->tar.plat_z = 0.1;
+	Platform->tar.plat_z = 0.08f;
 	Platform->tar.plat_pitch = 0;
 	Platform->tar.plat_yaw = 0;
 	Platform->tar.plat_roll = 0;
@@ -117,7 +117,7 @@ uint16_t watchdog2;
 float start_hit_time = 0.0f;
 float start_back_time = 0.0f;
 uint8_t finishhit = 1; //击球动作的状态标志，0为击球中，1为击打已完成
-float l_tar = 0.13f;
+float l_tar = 0.08f; //目标高度初始化为初始高度
 
 // 新增：击球位姿控制相关变量
 static float hitting_start_time = 0.0f;
@@ -460,13 +460,15 @@ void Platform_Jiefa_Cal(float hit) {
 		if(DWT_GetTimeline_s() - start_hit_time  <= 1.0f) {
 			//【疑问：这一步是在干啥？为啥要加那么多？】
 			// 是希望在这里快速达到某一高度实现快速击打么？
-			l_tar += 0.15;
-			LimitMax (l_tar,0.3);
-		  	Platform_Set_Target_Pos(0,0,l_tar,0,0,0);
+
+			l_tar += 0.2f;
+			LimitMax (l_tar,0.3f);
+			Platform_Set_Hitting_Pose(0,0,l_tar,3);
+		  	// Platform_Set_Target_Pos(0,0,l_tar,0,0,0);
       		Platform_Set_OutputState(Platform_fast);
 	 	} else {
 			Platform_Set_OutputState(Platform_slow);	
-			Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+			Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
 		  	start_back_time = DWT_GetTimeline_s();	
 		  	finishhit = 1;	
 	    }
@@ -478,12 +480,12 @@ void Platform_Jiefa_Cal(float hit) {
 		} else {
 			if((int)hit == 1) {
 				// 确保平台在初始位置
-				Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+				Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
 				Platform_Set_OutputState(Platform_middle);
 				start_hit_time = DWT_GetTimeline_s();
 				finishhit = 0;
 			} else if ((int)hit != 1) {
-				Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+				Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
 				Platform_Set_OutputState(Platform_middle);
 			}
 	  	}
@@ -644,7 +646,7 @@ void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitti
         hitting_start_time = DWT_GetTimeline_s();
         
         // 设置击球位姿：x=y=0, z=0.2，以及传入的roll、pitch、yaw
-        Platform_Set_Target_Pos(0.0f, 0.0f, 0.2f, pitch, yaw, roll);
+        Platform_Set_Target_Pos(0.0f, 0.0f, l_tar, pitch, yaw, roll);
         
         // 根据击球速度参数设置输出状态
         switch (hitting_speed) {
@@ -663,7 +665,7 @@ void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitti
         }
         
         // 调用逆运动学解算函数，计算各电机目标角度并启动闭环控制
-        Platform_Cal_3Degree_IK_Output();
+        // Platform_Cal_3Degree_IK_Output();
     }
 }
 
@@ -684,9 +686,8 @@ void Platform_Hitting_Pose_Update(void) {
                 // 开始回位
                 hitting_state = 2;
                 hitting_return_time = current_time;
-                
-                // 设置回到初始位置：x=y=0, z=0.13, roll=pitch=yaw=0
-                Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+                // 设置回到初始位置：x=y=0, z=0.08, roll=pitch=yaw=0
+                Platform_Set_Target_Pos(0.0f, 0.0f, Initial_Z_Position, 0.0f, 0.0f, 0.0f);
                 Platform_Set_OutputState(Platform_slow); // 慢速回位
                 Platform_Cal_3Degree_IK_Output();
             }
@@ -698,7 +699,7 @@ void Platform_Hitting_Pose_Update(void) {
                 hitting_state = 0;
                 
                 // 确保在初始位置
-                Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+                Platform_Set_Target_Pos(0.0f, 0.0f, Initial_Z_Position, 0.0f, 0.0f, 0.0f);
                 Platform_Set_OutputState(Platform_middle);
                 Platform_Cal_3Degree_IK_Output();
             }
@@ -707,7 +708,7 @@ void Platform_Hitting_Pose_Update(void) {
         case 0: // 空闲状态
         default:
             // 保持在初始位置
-            Platform_Set_Target_Pos(0.0f, 0.0f, 0.13f, 0.0f, 0.0f, 0.0f);
+            Platform_Set_Target_Pos(0.0f, 0.0f, Initial_Z_Position, 0.0f, 0.0f, 0.0f);
             Platform_Set_OutputState(Platform_middle);
             break;
     }

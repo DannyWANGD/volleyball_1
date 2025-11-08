@@ -12,6 +12,7 @@
 #include "sys_const.h"
 
 const float root3 = 1.73205;
+const float Initial_Z_Position = 0.08f;
 
 const  float Const_DMmotor_P_MIN  = -12.5  ;
 const  float Const_DMmotor_P_MAX   =12.5   ;

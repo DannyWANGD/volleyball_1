@@ -103,7 +103,7 @@ void Remote_RemoteProcess() {
       Platform_Set_ControlMode(Platform_Jiefa);	
 			Chassis_SetControlMode(Chassis_PC);
       Platform_Hitting_Pose_Update();
-      Platform_Set_Hitting_Pose(10.0f, 0.0f, 0.0f, 2);
+      // Platform_Set_Hitting_Pose(10.0f, 0.0f, 0.0f, 2);
       // Platform_Set_Hitting_Pose(10, 0, 0, 3);
 			break;
     }

@@ -28,8 +28,8 @@ void Communicate_Task(void const * argument) {
 	 
    osDelay(500);
 	 Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
-   for(;;) {
-			buscomm->tx_dt = DWT_GetDeltaT(&buscomm->last_tx_tick);
+      for(;;) {
+      buscomm->tx_dt = DWT_GetDeltaT(&buscomm->last_tx_tick);
       Comm_SendCommData();
       osDelay(3);
    }

@@ -33,19 +33,19 @@ typedef enum {
 typedef struct {
     Comm_CommStateEnum state;
 
-    uint8_t usb_watchBuff[COMM_RECEIVE_BUFF_LEN];
-    uint8_t usb_sendBuff[COMM_SEND_BUFF_LEN];
+    uint8_t usb_watchBuff[COMM_RECEIVE_BUFF_LEN]; // receive buffer
+    uint8_t usb_sendBuff[COMM_SEND_BUFF_LEN]; // send buffer
 
-    uint32_t last_rx_tick;
-    float rx_dt;
+    uint32_t last_rx_tick; // last receive tick
+    float rx_dt;           // receive delta time
 
-    uint32_t last_tx_tick;
-    float tx_dt;
+    uint32_t last_tx_tick; // last transmit tick
+    float tx_dt;           // transmit delta time
 
-    uint32_t last_gim_rx_tick;
-    float gim_rx_dt;
+    uint32_t last_gim_rx_tick; // last gimbal receive tick
+    float gim_rx_dt;           // gimbal receive delta time
 	
-	  float rx_len;
+	float rx_len; // received data length
 } Comm_DataTypeDef;
 
 
