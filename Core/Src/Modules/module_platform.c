@@ -204,6 +204,29 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
  }
 
 // 实现位置-速度串级双环 PID 控制器，是整个闭环控制的核心算法
+// 内部消除重复：使用宏封装串级计算，保持接口与行为不变
+#define CASCADE_PITCH(ANG_PID, SPD_PID, ANG_PARAM, SPD_PARAM, SETPOINT, FDB_ANG, ENC_SPD, SIGN, BIAS, OUT_TORQUE) \
+  do { \
+    PID_SetPIDRef(&(ANG_PID), (SETPOINT)); \
+    PID_SetPIDFdb(&(ANG_PID), (FDB_ANG)); \
+    PID_CalcPID(&(ANG_PID), &(ANG_PARAM)); \
+    PID_SetPIDRef(&(SPD_PID), PID_GetPIDOutput(&(ANG_PID))); \
+    PID_SetPIDFdb(&(SPD_PID), (SIGN) * (ENC_SPD)); \
+    PID_CalcPID(&(SPD_PID), &(SPD_PARAM)); \
+    (OUT_TORQUE) = (SIGN) * PID_GetPIDOutput(&(SPD_PID)) + (BIAS); \
+  } while (0)
+
+#define CASCADE_YAW(ANG_PID, SPD_PID, ANG_PARAM, SPD_PARAM, SETPOINT, FDB_ANG, ENC_SPD, BIAS, OUT_TORQUE) \
+  do { \
+    PID_SetPIDRef(&(ANG_PID), (SETPOINT)); \
+    PID_SetPIDFdb(&(ANG_PID), (FDB_ANG)); \
+    PID_CalcPID(&(ANG_PID), &(ANG_PARAM)); \
+    PID_SetPIDRef(&(SPD_PID), PID_GetPIDOutput(&(ANG_PID))); \
+    PID_SetPIDFdb(&(SPD_PID), (ENC_SPD)); \
+    PID_CalcPID(&(SPD_PID), &(SPD_PARAM)); \
+    (OUT_TORQUE) = PID_GetPIDOutput(&(SPD_PID)) + (BIAS); \
+  } while (0)
+
 void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,float ang5,float ang6) {
 	
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
@@ -216,171 +239,58 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 	LimitMaxMin(ang5,150.0f,90.0f);
 	LimitMaxMin(ang6,270.0f,210.0f);
   
-	switch (Platform->output_state) {
-		case Platform_slow:
-				// 设置角度环的目标值 Reference，即我们期望电机到达的角度
-			PID_SetPIDRef(&Platform->pid.Pitch1_Ang_PID, ang1);
-				// 设置角度环的反馈值 Feedback，即从传感器读到的当前实际角度
-			PID_SetPIDFdb(&Platform->pid.Pitch1_Ang_PID,Platform->fdb.front_pitch_angle); 
-				// 使用慢速模式的角度PID参数，这一步的输出不是力矩，而是一个期望的电机转速
-			PID_CalcPID(&Platform->pid.Pitch1_Ang_PID, &Platform->pid.Pitch_Ang_Slow_PIDParam);
-				// 将角度环的输出设置为速度环的目标值
-			PID_SetPIDRef(&Platform ->pid.Pitch1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch1_Ang_PID) );
-				// 设置速度环的反馈值，即从电机编码器读到的当前实际转速
-				// 前面的负号(-)很可能是因为电机安装方向或者编码器读数方向与坐标系定义相反，用来校正方向
-			PID_SetPIDFdb(&Platform ->pid.Pitch1_Spd_PID, - Motor_Pitch_Front_Motor.encoder.speed);
-				// 使用慢速模式的速度PID参数，这一步的输出，才是最终控制电机转动的物理量——力矩
-			PID_CalcPID(&Platform ->pid.Pitch1_Spd_PID, &Platform ->pid.Pitch_Spd_Slow_PIDParam);
-				// 计算最终的扭矩，负号用于方向矫正？“-1.5f”是用于抵抗重力的偏置项？
-			torque1 = -PID_GetPIDOutput(&Platform->pid.Pitch1_Spd_PID)-1.5f;
-  
-			PID_SetPIDRef(&Platform->pid.Pitch2_Ang_PID, ang2);
-			PID_SetPIDFdb(&Platform->pid.Pitch2_Ang_PID,Platform->fdb.left_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch2_Ang_PID, &Platform->pid.Pitch_Ang_Slow_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch2_Spd_PID, -Motor_Pitch_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch2_Spd_PID, &Platform ->pid.Pitch_Spd_Slow_PIDParam);
-			torque2 = -PID_GetPIDOutput(&Platform->pid.Pitch2_Spd_PID)-1.5f;
-		
-			PID_SetPIDRef(&Platform->pid.Pitch3_Ang_PID, ang3);
-			PID_SetPIDFdb(&Platform->pid.Pitch3_Ang_PID,Platform->fdb.right_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch3_Ang_PID, &Platform->pid.Pitch_Ang_Slow_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch3_Spd_PID, Motor_Pitch_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch3_Spd_PID, &Platform ->pid.Pitch_Spd_Slow_PIDParam);
-			torque3 = PID_GetPIDOutput(&Platform->pid.Pitch3_Spd_PID)+1.5f;
+  switch (Platform->output_state) {
+    case Platform_slow:
+      CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+      CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+      CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
 
-			PID_SetPIDRef(&Platform->pid.Yaw1_Ang_PID, ang4);
-			PID_SetPIDFdb(&Platform->pid.Yaw1_Ang_PID,Platform->fdb.front_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw1_Ang_PID, &Platform->pid.Yaw_Ang_Slow_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw1_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw1_Spd_PID, Motor_Yaw_Front_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw1_Spd_PID, &Platform ->pid.Yaw_Spd_Slow_PIDParam);
-			torque4 = PID_GetPIDOutput(&Platform->pid.Yaw1_Spd_PID);
-		
-			PID_SetPIDRef(&Platform->pid.Yaw2_Ang_PID, ang5);
-			PID_SetPIDFdb(&Platform->pid.Yaw2_Ang_PID,Platform->fdb.left_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw2_Ang_PID, &Platform->pid.Yaw_Ang_Slow_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw2_Spd_PID, Motor_Yaw_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw2_Spd_PID, &Platform ->pid.Yaw_Spd_Slow_PIDParam);
-			torque5 = PID_GetPIDOutput(&Platform->pid.Yaw2_Spd_PID)+0.5;
-		
-			PID_SetPIDRef(&Platform->pid.Yaw3_Ang_PID, ang6);
-			PID_SetPIDFdb(&Platform->pid.Yaw3_Ang_PID,Platform->fdb.right_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw3_Ang_PID, &Platform->pid.Yaw_Ang_Slow_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw3_Spd_PID, Motor_Yaw_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw3_Spd_PID, &Platform ->pid.Yaw_Spd_Slow_PIDParam);
-			torque6 = PID_GetPIDOutput(&Platform->pid.Yaw3_Spd_PID)-0.5;
-			
-			break;
+      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+      break;
 
-		case Platform_middle:
-			PID_SetPIDRef(&Platform->pid.Pitch1_Ang_PID, ang1);
-			PID_SetPIDFdb(&Platform->pid.Pitch1_Ang_PID,Platform->fdb.front_pitch_angle); 
-			PID_CalcPID(&Platform->pid.Pitch1_Ang_PID, &Platform->pid.Pitch_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch1_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch1_Spd_PID, -Motor_Pitch_Front_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch1_Spd_PID, &Platform ->pid.Pitch_Spd_Middle_PIDParam);
-			torque1 = -PID_GetPIDOutput(&Platform->pid.Pitch1_Spd_PID)-1.5f;
-			
-			PID_SetPIDRef(&Platform->pid.Pitch2_Ang_PID, ang2);
-			PID_SetPIDFdb(&Platform->pid.Pitch2_Ang_PID,Platform->fdb.left_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch2_Ang_PID, &Platform->pid.Pitch_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch2_Spd_PID, -Motor_Pitch_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch2_Spd_PID, &Platform ->pid.Pitch_Spd_Middle_PIDParam);
-			torque2 = -PID_GetPIDOutput(&Platform->pid.Pitch2_Spd_PID)-1.5f;
-			
-			PID_SetPIDRef(&Platform->pid.Pitch3_Ang_PID, ang3);
-			PID_SetPIDFdb(&Platform->pid.Pitch3_Ang_PID,Platform->fdb.right_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch3_Ang_PID, &Platform->pid.Pitch_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch3_Spd_PID, Motor_Pitch_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch3_Spd_PID, &Platform ->pid.Pitch_Spd_Middle_PIDParam);
-			torque3 = PID_GetPIDOutput(&Platform->pid.Pitch3_Spd_PID)+1.5f;
+    case Platform_middle:
+      CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+      CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+      CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
 
-			PID_SetPIDRef(&Platform->pid.Yaw1_Ang_PID, ang4);
-			PID_SetPIDFdb(&Platform->pid.Yaw1_Ang_PID,Platform->fdb.front_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw1_Ang_PID, &Platform->pid.Yaw_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw1_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw1_Spd_PID, Motor_Yaw_Front_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw1_Spd_PID, &Platform ->pid.Yaw_Spd_Middle_PIDParam);
-			torque4 = PID_GetPIDOutput(&Platform->pid.Yaw1_Spd_PID);
-			
-			PID_SetPIDRef(&Platform->pid.Yaw2_Ang_PID, ang5);
-			PID_SetPIDFdb(&Platform->pid.Yaw2_Ang_PID,Platform->fdb.left_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw2_Ang_PID, &Platform->pid.Yaw_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw2_Spd_PID, Motor_Yaw_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw2_Spd_PID, &Platform ->pid.Yaw_Spd_Middle_PIDParam);
-			torque5 = PID_GetPIDOutput(&Platform->pid.Yaw2_Spd_PID)+0.5;
-			
-			PID_SetPIDRef(&Platform->pid.Yaw3_Ang_PID, ang6);
-			PID_SetPIDFdb(&Platform->pid.Yaw3_Ang_PID,Platform->fdb.right_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw3_Ang_PID, &Platform->pid.Yaw_Ang_Middle_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw3_Spd_PID, Motor_Yaw_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw3_Spd_PID, &Platform ->pid.Yaw_Spd_Middle_PIDParam);
-			torque6 = PID_GetPIDOutput(&Platform->pid.Yaw3_Spd_PID)-0.5;
-			
-			break;
+      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+      break;
 
-		case Platform_fast:
-			PID_SetPIDRef(&Platform->pid.Pitch1_Ang_PID, ang1);
-			PID_SetPIDFdb(&Platform->pid.Pitch1_Ang_PID,Platform->fdb.front_pitch_angle); 
-			PID_CalcPID(&Platform->pid.Pitch1_Ang_PID, &Platform->pid.Pitch_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch1_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch1_Spd_PID, -Motor_Pitch_Front_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch1_Spd_PID, &Platform ->pid.Pitch_Spd_Fast_PIDParam);
-			torque1 = -PID_GetPIDOutput(&Platform->pid.Pitch1_Spd_PID)-1.5f;
-			
-			PID_SetPIDRef(&Platform->pid.Pitch2_Ang_PID, ang2);
-			PID_SetPIDFdb(&Platform->pid.Pitch2_Ang_PID,Platform->fdb.left_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch2_Ang_PID, &Platform->pid.Pitch_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch2_Spd_PID, -Motor_Pitch_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch2_Spd_PID, &Platform ->pid.Pitch_Spd_Fast_PIDParam);
-			torque2 = -PID_GetPIDOutput(&Platform->pid.Pitch2_Spd_PID)-1.5f;
-			
-			PID_SetPIDRef(&Platform->pid.Pitch3_Ang_PID, ang3);
-			PID_SetPIDFdb(&Platform->pid.Pitch3_Ang_PID,Platform->fdb.right_pitch_angle);
-			PID_CalcPID(&Platform->pid.Pitch3_Ang_PID, &Platform->pid.Pitch_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Pitch3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Pitch3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Pitch3_Spd_PID, Motor_Pitch_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Pitch3_Spd_PID, &Platform ->pid.Pitch_Spd_Fast_PIDParam);
-			torque3 = PID_GetPIDOutput(&Platform->pid.Pitch3_Spd_PID)+1.5f;
+    case Platform_fast:
+      CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+      CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+      CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
 
-			PID_SetPIDRef(&Platform->pid.Yaw1_Ang_PID, ang4);
-			PID_SetPIDFdb(&Platform->pid.Yaw1_Ang_PID,Platform->fdb.front_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw1_Ang_PID, &Platform->pid.Yaw_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw1_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw1_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw1_Spd_PID, Motor_Yaw_Front_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw1_Spd_PID, &Platform ->pid.Yaw_Spd_Fast_PIDParam);
-			torque4 = PID_GetPIDOutput(&Platform->pid.Yaw1_Spd_PID);
-			
-			PID_SetPIDRef(&Platform->pid.Yaw2_Ang_PID, ang5);
-			PID_SetPIDFdb(&Platform->pid.Yaw2_Ang_PID,Platform->fdb.left_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw2_Ang_PID, &Platform->pid.Yaw_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw2_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw2_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw2_Spd_PID, Motor_Yaw_Left_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw2_Spd_PID, &Platform ->pid.Yaw_Spd_Fast_PIDParam);
-			torque5 = PID_GetPIDOutput(&Platform->pid.Yaw2_Spd_PID)+0.5;
-			
-			PID_SetPIDRef(&Platform->pid.Yaw3_Ang_PID, ang6);
-			PID_SetPIDFdb(&Platform->pid.Yaw3_Ang_PID,Platform->fdb.right_yaw_angle);
-			PID_CalcPID(&Platform->pid.Yaw3_Ang_PID, &Platform->pid.Yaw_Ang_Fast_PIDParam);
-			PID_SetPIDRef(&Platform ->pid.Yaw3_Spd_PID,PID_GetPIDOutput(&Platform->pid.Yaw3_Ang_PID) );
-			PID_SetPIDFdb(&Platform ->pid.Yaw3_Spd_PID, Motor_Yaw_Right_Motor.encoder.speed);
-			PID_CalcPID(&Platform ->pid.Yaw3_Spd_PID, &Platform ->pid.Yaw_Spd_Fast_PIDParam);
-			torque6 = PID_GetPIDOutput(&Platform->pid.Yaw3_Spd_PID)-0.5;
-    
-			break;
+      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+      break;
 
-		default:  
-			break;
-	}
+    default:
+      break;
+  }
 	// 将前面计算出的三个力矩值 torque1, torque2, torque3 发送给底层的电机驱动器，驱动器再将这些数值转换成对应的电流，施加到电机上，从而驱动平台运动。
   	Platform_Set_Torque_Output(torque1,torque2,torque3,torque4,torque5,torque6);
 
@@ -646,7 +556,7 @@ void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitti
         hitting_start_time = DWT_GetTimeline_s();
         
         // 设置击球位姿：x=y=0, z=0.2，以及传入的roll、pitch、yaw
-        Platform_Set_Target_Pos(0.0f, 0.0f, l_tar, pitch, yaw, roll);
+        Platform_Set_Target_Pos(0.0f, 0.0f, l_tar+0.1f, pitch, yaw, roll);
         
         // 根据击球速度参数设置输出状态
         switch (hitting_speed) {
