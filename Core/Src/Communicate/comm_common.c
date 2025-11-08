@@ -127,13 +127,45 @@ void Comm_SendCommData() {
 
 // 数据包校验函数
 static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
-  Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
-  if ((buff[0] == 0x5A) && (buff[1] == 0xA5)) {
-    memcpy(buscomm->usb_watchBuff, buff, rxdatalen);
-    return 1;
-  } else {
+  if (buff == NULL || rxdatalen < 2U) {
     return 0;
   }
+
+  Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
+  if ((buff[0] != 0x5A) || (buff[1] != 0xA5)) {
+    return 0;
+  }
+
+  /* 至少包含: 头(2) + 长度(2) + 尾(2) */
+  if (rxdatalen < 6U) {
+    return 0;
+  }
+
+  /* 尾校验位检查 */
+  if ((buff[rxdatalen - 2] != 0x7A) || (buff[rxdatalen - 1] != 0xA7)) {
+    return 0;
+  }
+
+  /* 长度字段一致性检查：len == 总长度 - 尾部2字节 */
+  uint16_t frame_len = (uint16_t)(buff[2] | (buff[3] << 8));
+  if (frame_len != (uint16_t)(rxdatalen - 2U)) {
+    return 0;
+  }
+
+  uint32_t copy_len = rxdatalen;
+#ifdef COMM_RECEIVE_BUFF_LEN
+  if (copy_len > COMM_RECEIVE_BUFF_LEN) {
+    copy_len = COMM_RECEIVE_BUFF_LEN;
+  }
+#endif
+
+  if (buscomm != NULL && copy_len > 0U) {
+    if (buscomm->usb_watchBuff != buff) {
+      memcpy(buscomm->usb_watchBuff, buff, copy_len);
+    }
+  }
+
+  return 1;
 }
 
 
