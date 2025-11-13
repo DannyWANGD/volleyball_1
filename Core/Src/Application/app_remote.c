@@ -102,15 +102,17 @@ void Remote_RemoteProcess() {
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Jiefa);	
 			Chassis_SetControlMode(Chassis_PC);
-      Platform_Hitting_Pose_Update();
-      Platform_Set_Hitting_Pose(0.0f, 0.0f, 0.0f, 2);
-      // Platform_Set_Hitting_Pose(10, 0, 0, 3);
+      // 统一接口：直接调用 Jiefa_Cal 周期更新
+      Platform_Jiefa_Cal(1.0f);
+      // 如需设置击球姿态：先设姿态，再触发击球
+      // Platform_Set_Target_Pos(0.0f, 0.0f, Platform_GetPlatformPtr()->tar.plat_z, /*pitch*/0.0f, /*yaw*/0.0f, /*roll*/0.0f);
+      // Platform_Jiefa_Cal(1.0f);
 			break;
     }
 		// 完全交由遥控器控制
     case Remote_SWITCH_MIDDLE: {
       Platform_Set_ControlMode(Platform_Initpose);
-      Chassis_SetControlMode(Chassis_Remote);   
+      Chassis_SetControlMode(Chassis_Remote); 
       Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f);  							
 	    // Chassis_Set_Speed( data->remote.ch[2]/660.0f * 2.0f,data->remote.ch[3]/660.0f * 2.0f,data->remote.ch[0]/660.0f * 3.0f);
       break;
@@ -118,7 +120,7 @@ void Remote_RemoteProcess() {
 		// 紧急制动全部停止
     case Remote_SWITCH_DOWN: {
 	    Platform_Set_ControlMode(Platform_Jiefa);	
-			Chassis_SetControlMode(Chassis_Remote);  
+			Chassis_SetControlMode(Chassis_Remote); 
       Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f);  							
 			//Chassis_Set_Speed(Chassis_Stop,0,0,0); 						
       break;
@@ -142,11 +144,15 @@ void Remote_RemoteProcessPlus() {
   switch (data->remote.s[1]) {
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Chuanqiu);
-      Platform_Set_Target_Pos(0, 0, data->remote.ch[1] * 0.15 / 660.0f + 0.12f, data->remote.ch[2] * 30.0f / 660.0f, 0, data->remote.ch[3] * 60.0f / 660.0f);
+      Platform_Set_Target_Pos_Smooth(0, 0,
+                                     data->remote.ch[1] * 0.15f / 660.0f + 0.12f, // Z 目标（m）
+                                     data->remote.ch[3] * 60.0f / 660.0f,         // Pitch 目标（deg）
+                                     0.0f,                                         // Yaw 目标（deg）
+                                     data->remote.ch[2] * 60.0f / 660.0f);        // Roll 目标（deg）
       Chassis_Set_Speed(Chassis_Lock, 0, 0, 0);
       break;
     }
-    case Remote_SWITCH_MIDDLE: {    
+    case Remote_SWITCH_MIDDLE: {
       Platform_Set_ControlMode(Platform_Initpose);		
       Chassis_SetControlMode(Chassis_Remote);   
       Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 

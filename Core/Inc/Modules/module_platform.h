@@ -116,6 +116,8 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3 ,float ang4,flo
 void Platform_Set_ControlMode(uint8_t mode) ;
 void Platform_Set_OutputState(uint8_t state) ;
 void Platform_Set_Target_Pos(float x,float y,float z,float pitch,float yaw,float roll) ;
+// 遥控/人机接口：丝滑轨迹版目标位姿设置（速度/加速度受限）
+void Platform_Set_Target_Pos_Smooth(float x,float y,float z,float pitch,float yaw,float roll) ;
 void Platform_Control(void);
 void Platform_Output(void);
 void Platform_Cal_3Degree_IK_Output() ;
@@ -123,8 +125,10 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
 void Platform_Dianqiu_Cal(float hit,uint8_t distance);
 void Platform_Jiefa_Cal(float hit);
 void Platform_Check();
-void Platform_Set_Hitting_Pose(float roll, float pitch, float yaw, uint8_t hitting_speed);
-void Platform_Hitting_Pose_Update(void);
+// 简化接口：姿态设置请调用 Platform_Set_Target_Pos，击球触发调用 Platform_Jiefa_Cal(1.0f)
+ // Deprecated external interface: now internally used by Platform_Jiefa_Cal
+ // Keep for reference, but do not expose externally.
+ // int Platform_Update_Z_TrajWithUserSpeed(float goal_z, float dt, float v_set, float a_limit);
 uint8_t Platform_Get_Hitting_State(void);
 void Platform_Reset_Hitting_State(void);
 #endif
