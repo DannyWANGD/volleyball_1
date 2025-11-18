@@ -145,7 +145,7 @@ void Remote_RemoteProcessPlus() {
     case Remote_SWITCH_UP: {
       Platform_Set_ControlMode(Platform_Chuanqiu);
       Platform_Set_Target_Pos_Smooth(0, 0,
-                                     data->remote.ch[1] * 0.15f / 660.0f + 0.12f, // Z 目标（m）
+                                     data->remote.ch[1] * 0.15f / 660.0f +0.08f, // Z 目标（m）
                                      data->remote.ch[3] * 60.0f / 660.0f,         // Pitch 目标（deg）
                                      0.0f,                                         // Yaw 目标（deg）
                                      data->remote.ch[2] * 60.0f / 660.0f);        // Roll 目标（deg）

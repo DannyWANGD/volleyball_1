@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - -ID:\Keil_v5\ARM\ARMCLANG/include
+    - -ID:\Keil_v5\ARM\ARMCLANG/include/libcxx
+  Remove: []
+  CompilationDatabase: ./build/testa1
+  Compiler: D:\Keil_v5\ARM\ARMCLANG\bin\armclang.exe

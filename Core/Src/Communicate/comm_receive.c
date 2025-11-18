@@ -38,7 +38,7 @@ Comm_ReceiveEntry CommCmd_Receive[Const_Comm_Receive_BUFF_SIZE] = {
 
 
 static uint32_t _set_Platform_Data_(uint8_t *buff) {
-	
+
   Remote_RemoteDataTypeDef *rc = Remote_GetRemoteDataPtr(); 
   Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 
