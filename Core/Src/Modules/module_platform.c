@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
- float PLATFORM_Z_MAX = 0.30f;
+ float PLATFORM_Z_MAX = 0.28f;
 
 // 轨迹平滑控制（Z 高度）——参数与状态（简化版：统一配置 + 兼容宏）
 typedef struct {
@@ -72,7 +72,7 @@ void Platform_Init() {
 	
   	Platform_DataTypeDef *Platform = &Platform_Data;  
 	
-	Platform->output_state = Platform_fast;
+	Platform->output_state = Platform_slow;
 	Platform->ctrl_mode = Platform_Initpose;
 	Platform->fdb.front_pitch_angle = 0;
 	Platform->fdb.front_yaw_angle = 0;
@@ -781,7 +781,7 @@ void Platform_Control() {
 			start_back_time = 0.0f;
 			finishhit = 1;
 			l_tar = Initial_Z_Position;	
-			Platform_Set_OutputState(Platform_fast);  
+			Platform_Set_OutputState(Platform_slow);  
 			Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);  
 			Platform_Cal_3Degree_IK_Output(); 
 			break;
