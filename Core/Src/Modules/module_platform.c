@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
- float PLATFORM_Z_MAX = 0.28f;
+ float PLATFORM_Z_MAX = 0.3f;
 
 // 轨迹平滑控制（Z 高度）——参数与状态（简化版：统一配置 + 兼容宏）
 typedef struct {
@@ -44,8 +44,8 @@ ZTrajProfile z_profile = {
     0.01f,   // ret_ratio
     0.10f,   // brake_gain
     0.05f,  // boost_err
-    4.8f,   // boost_gain
-    30.0f   // accel_abs_max
+    4.5f,   // boost_gain
+    35.0f   // accel_abs_max
 };
 
 // 20251118 阶段性参数调整
@@ -413,6 +413,8 @@ void Platform_Cal_3Degree_IK_Output() {
 static float l_traj_v   = 0.0f;   // 高度指令的速度状态
 static float l_tar_goal = 0.12f;  // 目标高度（与 l_tar 同单位）
 static const float l_tar_tol = 1e-3f;    // 目标收敛阈值
+static float hit_pitch_goal = 10.0f;
+static float hit_roll_goal  = 5.0f;
 
 // 已移除 legacy 参数，直接使用 z_profile 与派生函数
 
@@ -433,72 +435,88 @@ static inline void Z_ApplyProfileSafe(void) {
     z_profile.brake_gain    = 0.05f;
     z_profile.boost_err     = 0.03f;
     z_profile.boost_gain    = 3.00f;
-    z_profile.accel_abs_max = 25.0f;
+    z_profile.accel_abs_max = 30.0f;
 }
 
 /**
- * @brief      Z 轴平滑轨迹（用户速度控制版）
- * @param      goal_z    目标高度 (m)
- * @param      dt        时间步长 (s)
- * @param      v_set     期望速度 (m/s)，取绝对值作为速度上限，自动按方向设置符号
- * @param      a_limit   最大加速度 (m/s^2)，用于限制速度变化与刹车
- * @retval     1 已到达目标并锁定，0 尚未到达（已按给定速度推进）
- * @note       与 Platform_Update_Z_TrajSmooth 相似，但允许外部直接指定速度与加速度，
- *             仍包含到目标附近的自动刹车与安全限幅，避免机械冲击。
+ * @brief      通用平滑轨迹更新器（位置/角度）
+ * @param      goal      目标值（高度 m 或角度 deg）
+ * @param      dt        时间步长（秒）
+ * @param      v_set     期望最大速度（绝对值为上限，符号由误差方向决定）
+ * @param      a_limit   期望最大加速度
+ * @param      state     待更新的状态指针（Z 高度或角度）
+ * @param      traj_v    对应的轨迹速度状态指针
+ * @param      min/max   状态安全范围（限幅）
+ * @param      tol       收敛阈值（误差小于该值视为到达）
+ * @param      is_z      是否为 Z 轴：启用上升加速增强与下降提前刹车
+ * @retval     1 到达目标（锁定并清零轨迹速度），0 未到达（按限速推进）
+ * @note       统一实现：加速度受限追速、接近目标线性刹停、速度与状态限幅。
+ *             当 is_z=1 时，远离目标的上升方向会提升加速度（受绝对上限保护），
+ *             下降方向会加大刹车增益，避免机械下砸。
  */
-int Platform_Update_Z_TrajWithUserSpeed(float goal_z, float dt, float v_set, float a_limit)
+static inline int Traj_Update(float goal, float dt, float v_set, float a_limit,
+                              float *state, float *traj_v,
+                              float min, float max, float tol, int is_z)
 {
-    if (dt <= 0.0f) {
-        return 0;
-    }
-    // 保护速度和加速度的输入参数
+    // 输入参数检查
+    if (dt <= 0.0f || state == NULL || traj_v == NULL) return 0;
+    // 期望最大速度限幅，确保非零
     float v_cap = fabsf(v_set);
+    if (v_cap < 1e-6f) v_cap = 1e-3f;
+    // 期望最大加速度限幅，确保非零
     float a_cap = (a_limit > 1e-6f) ? a_limit : 1e-3f;
-    float e = goal_z - l_tar; // 当前位置误差
+    // 计算当前误差（目标 - 当前状态）
+    float e = goal - (*state);
     float abs_e = fabsf(e);
 
-    // 远离目标时，动态提升加速度以更快贴近目标
-    if (abs_e > z_profile.boost_err) {
+    // Z 轴仅在“偏差较大且为上升方向”时提升加速度，加快贴近目标
+    if (is_z && abs_e > z_profile.boost_err && e > 0.0f) {
         a_cap *= z_profile.boost_gain;
         if (a_cap > z_profile.accel_abs_max) a_cap = z_profile.accel_abs_max;
     }
-
-    if (fabsf(e) > l_tar_tol) {
-        // 目标方向上的速度指令
+    
+    // 处于未到达阶段：以加速度受限将速度追向目标方向
+    if (fabsf(e) > tol) {
         float v_cmd = (e > 0.0f) ? v_cap : -v_cap;
+        // 接近目标时的线性刹停（根据当前速度的制动距离）
+        float stop_dist = ((*traj_v) * (*traj_v)) / (2.0f * a_cap);
+        float brake_k = is_z ? z_profile.brake_gain : 1.0f;
 
-        // 根据当前速度的制动距离，接近目标时把速度指令改为 0 以线性刹停
-        float stop_dist = (l_traj_v * l_traj_v) / (2.0f * a_cap);
-        if (fabsf(e) <= stop_dist * z_profile.brake_gain) {
-            v_cmd = 0.0f; // 进入刹车段
-        }
+        // Z 轴下降提前进入刹车段，防止“下砸”
+        if (is_z && e < 0.0f) brake_k *= 2.0f;
+        // 当偏差小于刹车距离时，以最大刹车加速度 dt 步长停止
+        if (fabsf(e) <= stop_dist * brake_k) v_cmd = 0.0f;
 
-        // 速度上限：不超过用户设置
-        if (l_traj_v >  v_cap) l_traj_v =  v_cap;
-        if (l_traj_v < -v_cap) l_traj_v = -v_cap;
+        // 以最大加速度 dt 步长逼近期望速度
+        float dv = v_cmd - (*traj_v);
 
-
-        // 以加速度上限将 l_traj_v 追向 v_cmd
-        float dv = v_cmd - l_traj_v;
+        // 限制最大加速度 dt 步长，避免超速
         float dv_max = a_cap * dt;
         if (dv >  dv_max) dv =  dv_max;
         if (dv < -dv_max) dv = -dv_max;
-        l_traj_v += dv;
 
-        // 位置积分
-        l_tar += l_traj_v * dt;
+        *traj_v += dv; // 速度以最大加速度逐步逼近期望
 
-        // 安全限幅（保持系统约束）：最低 Initial_Z_Position，最高 PLATFORM_Z_MAX
-        if (l_tar < Initial_Z_Position) l_tar = Initial_Z_Position;
-        if (l_tar > PLATFORM_Z_MAX)     l_tar = PLATFORM_Z_MAX;
+        // 速度限幅，保证不超过期望速度上限
+        if (*traj_v >  v_cap) *traj_v =  v_cap;
+        if (*traj_v < -v_cap) *traj_v = -v_cap;
 
-        return 0; // 尚未到达目标
+        // 位置/角度积分，更新当前状态
+        *state += (*traj_v) * dt;
+
+        // 安全范围限幅，避免越界
+        if (*state < min) *state = min;
+        if (*state > max) *state = max;
+        return 0;
     } else {
-        l_tar    = goal_z;
-        l_traj_v = 0.0f;
-        return 1; // 已到达目标
+        // 进入到达阶段：锁定目标并清零轨迹速度
+        *state  = goal;
+        *traj_v = 0.0f;
+        return 1;
     }
 }
+
+// removed: use Traj_Update directly
 
 // ========= 遥控器“丝滑”轨迹接口（角度与高度） =========
 // 为遥控模式提供角度/高度的速度-加速度受限平滑控制，降低噪音与卡顿
@@ -514,59 +532,42 @@ int Platform_Update_Z_TrajWithUserSpeed(float goal_z, float dt, float v_set, flo
 #define REMOTE_YAW_A_MAX    900.0f  // deg/s^2 (原 600.0)
 
 // 角度平滑更新：与 Z 的用户速度版同思路，支持任意角度（度）
-static int Platform_Update_Angle_TrajWithUserSpeed(float goal_ang, float dt, float v_set, float a_limit,
-                                                   float *ang_state, float *ang_traj_v,
-                                                   float ang_min, float ang_max)
-{
-    if (dt <= 0.0f || ang_state == NULL || ang_traj_v == NULL) {
-        return 0;
-    }
-
-    float v_cap = fabsf(v_set);
-    float a_cap = (a_limit > 1e-6f) ? a_limit : 1e-3f;
-    float e = goal_ang - *ang_state;
-    const float tol = 1e-3f;
-
-    if (fabsf(e) > tol) {
-        // 目标方向速度指令
-        float v_cmd = (e > 0.0f) ? v_cap : -v_cap;
-        // 到目标附近的制动距离
-        float stop_dist = ((*ang_traj_v) * (*ang_traj_v)) / (2.0f * a_cap);
-        if (fabsf(e) <= stop_dist) {
-            v_cmd = 0.0f;
-        }
-        // 以加速度上限追向 v_cmd
-        float dv = v_cmd - (*ang_traj_v);
-        float dv_max = a_cap * dt;
-        if (dv >  dv_max) dv =  dv_max;
-        if (dv < -dv_max) dv = -dv_max;
-        *ang_traj_v += dv;
-
-        // 速度限幅
-        if (*ang_traj_v >  v_cap) *ang_traj_v =  v_cap;
-        if (*ang_traj_v < -v_cap) *ang_traj_v = -v_cap;
-
-        // 位置积分
-        *ang_state += (*ang_traj_v) * dt;
-
-        // 安全限幅：保持在允许范围内
-        if (*ang_state > ang_max) *ang_state = ang_max;
-        if (*ang_state < ang_min) *ang_state = ang_min;
-
-        return 0;
-    } else {
-        *ang_state  = goal_ang;
-        *ang_traj_v = 0.0f;
-        return 1;
-    }
-}
+// removed: use Traj_Update directly
 
 // 遥控角度轨迹速度状态
 static float pitch_traj_v = 0.0f;
 static float roll_traj_v  = 0.0f;
 static float yaw_traj_v   = 0.0f;
 
-// 对外接口：将目标位姿（来自遥控映射）转为丝滑的轨迹目标
+static inline void AngleSmoothUpdate(float dt,
+                                     float pitch_goal, float roll_goal,
+                                     float v_pitch, float a_pitch,
+                                     float v_roll,  float a_roll)
+{
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    (void)Traj_Update(pitch_goal, dt, v_pitch, a_pitch,
+                      &Platform->tar.plat_pitch, &pitch_traj_v,
+                      -30.0f, 30.0f, 1e-3f, 0);
+    (void)Traj_Update(roll_goal,  dt, v_roll,  a_roll,
+                      &Platform->tar.plat_roll,  &roll_traj_v,
+                      -45.0f, 45.0f, 1e-3f, 0);
+}
+
+static inline void WriteTargetFromState(void)
+{
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    Platform_Set_Target_Pos(0,0,l_tar, Platform->tar.plat_pitch, Platform->tar.plat_yaw, Platform->tar.plat_roll);
+}
+
+static inline int AnglesReady(float pitch_goal, float roll_goal, float ang_tol, float v_ang_near_zero)
+{
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    int pitch_ok = (fabsf(pitch_goal - Platform->tar.plat_pitch) <= ang_tol) || (fabsf(pitch_traj_v) <= v_ang_near_zero);
+    int roll_ok  = (fabsf(roll_goal  - Platform->tar.plat_roll)  <= ang_tol) || (fabsf(roll_traj_v)  <= v_ang_near_zero);
+    return pitch_ok && roll_ok;
+}
+
+// 对外接口：将目标位姿转为丝滑的轨迹目标
 void Platform_Set_Target_Pos_Smooth(float x, float y, float z_goal,
                                     float pitch_goal, float yaw_goal, float roll_goal)
 {
@@ -576,16 +577,18 @@ void Platform_Set_Target_Pos_Smooth(float x, float y, float z_goal,
         dt = 1.0f; // 5ms 安全步长
     }
 
-    // 高度：沿用 Z 轴用户速度版，保证平滑与安全限幅
-    (void)Platform_Update_Z_TrajWithUserSpeed(z_goal, dt, REMOTE_Z_V_MAX, REMOTE_Z_A_MAX);
+    (void)Traj_Update(z_goal, dt, REMOTE_Z_V_MAX, REMOTE_Z_A_MAX,
+                      &l_tar, &l_traj_v,
+                      Initial_Z_Position, PLATFORM_Z_MAX,
+                      l_tar_tol, 1);
 
     // 角度：按速度/加速度上限做平滑推进（单位：度）
-    (void)Platform_Update_Angle_TrajWithUserSpeed(pitch_goal, dt, REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-                                                  &Platform->tar.plat_pitch, &pitch_traj_v, -30.0f, 30.0f);
+    (void)Traj_Update(pitch_goal, dt, REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+                      &Platform->tar.plat_pitch, &pitch_traj_v, -30.0f, 30.0f, 1e-3f, 0);
     // (void)Platform_Update_Angle_TrajWithUserSpeed(yaw_goal,   dt, REMOTE_YAW_V_MAX,   REMOTE_YAW_A_MAX,
     //                                               &Platform->tar.plat_yaw,   &yaw_traj_v,   -30.0f, 30.0f);
-    (void)Platform_Update_Angle_TrajWithUserSpeed(roll_goal,  dt, REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX,
-                                                  &Platform->tar.plat_roll,  &roll_traj_v,  -45.0f, 45.0f);
+    (void)Traj_Update(roll_goal,  dt, REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX,
+                      &Platform->tar.plat_roll,  &roll_traj_v,  -45.0f, 45.0f, 1e-3f, 0);
 
     // 更新目标位姿（X/Y 保持原接口习惯）
     Platform->tar.plat_x = x;
@@ -614,7 +617,7 @@ void Platform_Jiefa_Cal(float hit) {
     // 使用系统已计算的精确 dt（秒），若异常则给一个保守默认值
     float dt = Platform->update_dt;
     if (dt <= 0.0f || dt > 0.05f) {
-        dt = 0.005f; // 5ms 安全步长
+        dt = 1.0f; // 5ms 安全步长
     }
 
     // 内嵌接口：使用用户速度/加速度版本进行平滑控制
@@ -629,37 +632,64 @@ void Platform_Jiefa_Cal(float hit) {
     // 判据阈值（无需时间窗口）
     const float z_top_tol     = 0.001f;   // 距离上限的收敛阈值
     const float v_near_zero   = 0.01f;   // 认为速度近零的阈值（m/s）
+    const float ang_tol       = 1.0f; // 认为角度近零的阈值（度）
+    const float v_ang_near_zero = 1.5f; // 认为角度近零的阈值（度/s）
 
     if (finishhit == 0) {
         // 击球进行：根据位置/速度/制动判据切换到回落
+        // 上升阶段（击球中）：快速输出，Z 按上升限速推进，pitch/roll 并行平滑逼近击打角
         if (hitting_state == 1) {
-            // 上升阶段：以用户速度/加速度进行平滑逼近上限
-            l_tar_goal = PLATFORM_Z_MAX; // 使用系统上限
-            float tar_plat_pitch = 10.0f; // 击球时俯仰一定角度
+            l_tar_goal = PLATFORM_Z_MAX;
             Platform_Set_OutputState(Platform_fast);
-            int reached_up = Platform_Update_Z_TrajWithUserSpeed(l_tar_goal, dt, v_set_up, a_limit_up); 
-            Platform_Set_Target_Pos(0,0,l_tar, Platform->tar.plat_pitch, Platform->tar.plat_yaw, Platform->tar.plat_roll);
+            // Z 高度推进（加速度受限 + 接近顶端线性刹停）
+            int reached_up_z = Traj_Update(PLATFORM_Z_MAX, dt, v_set_up, a_limit_up,
+                                           &l_tar, &l_traj_v,
+                                           Initial_Z_Position, PLATFORM_Z_MAX,
+                                           l_tar_tol, 1);
+            // 角度推进（速度/加速度受限）、写入目标
+            AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
+                              REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+                              REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
+            WriteTargetFromState();
 
-            // 进入回落的条件：到达上限/接近上限/速度近零/进入刹车段
-            float e_top = l_tar_goal - l_tar; // 距离上限的误差
-            float stop_dist_up = (l_traj_v * l_traj_v) / (2.0f * a_limit_up); // 到上限的制动距离
+            // 上顶误差与刹车判据：进入制动距离后使速度指令为零以线性刹停
+            float e_top = PLATFORM_Z_MAX - l_tar;
+            float stop_dist_up = (l_traj_v * l_traj_v) / (2.0f * a_limit_up);
             int entering_brake = (fabsf(e_top) <= stop_dist_up * z_profile.brake_gain);
-            if (reached_up || (fabsf(e_top) <= z_top_tol) || (fabsf(l_traj_v) <= v_near_zero) || entering_brake) {
-                hitting_state = 2; // 切换到回落阶段
+            // 角度就绪：到目标角或角速度近零
+            int angles_ready = AnglesReady(hit_pitch_goal, hit_roll_goal, ang_tol, v_ang_near_zero);
+            // 满足 Z 到顶/接近/速度近零/进入刹车段，且角度就绪 → 切换到回落
+            if (reached_up_z || (fabsf(e_top) <= z_top_tol) || (fabsf(l_traj_v) <= v_near_zero) || entering_brake) {
+                if (angles_ready) {
+                    hitting_state = 2;
+                }
             }
         } 
+        // 回落阶段：慢档输出，Z 按下降限速推进，pitch/roll 以低速回归 0
         if (hitting_state == 2) {
-            // 回落阶段：采用更慢的速度与加速度做平滑下落
             Platform_Set_OutputState(Platform_slow);
-            l_tar_goal = Initial_Z_Position;
-            int reached_dn = Platform_Update_Z_TrajWithUserSpeed(l_tar_goal, dt, v_set_down, a_limit_dn);
-            if (reached_dn) {
-                // 完成一次击球并回位：记录冷却开始时间
+            const float scale = z_profile.ret_ratio;
+            // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
+            (void)Traj_Update(Initial_Z_Position, dt, v_set_down, a_limit_dn,
+                              &l_tar, &l_traj_v,
+                              Initial_Z_Position, PLATFORM_Z_MAX,
+                              l_tar_tol, 1);
+            // 角度回落推进（按 ret_ratio 缩放的速度/加速度）
+            AngleSmoothUpdate(dt, 0.0f, 0.0f,
+                              REMOTE_PITCH_V_MAX * scale, REMOTE_PITCH_A_MAX * scale,
+                              REMOTE_ROLL_V_MAX  * scale, REMOTE_ROLL_A_MAX  * scale);
+            WriteTargetFromState();
+            // Z 回落完成：位置接近初始且速度近零
+            int reached_dn_z = (fabsf(Initial_Z_Position - l_tar) <= z_top_tol) && (fabsf(l_traj_v) <= v_near_zero);
+            
+            // 角度回落完成：接近 0 度或角速度近零
+            int pitch_back = (fabsf(Platform->tar.plat_pitch) <= ang_tol) || (fabsf(pitch_traj_v) <= v_ang_near_zero);
+            int roll_back  = (fabsf(Platform->tar.plat_roll)  <= ang_tol) || (fabsf(roll_traj_v)  <= v_ang_near_zero);
+            // 三项均满足 → 标记击球完成，进入冷却
+            if (reached_dn_z && pitch_back && roll_back) {
                 start_back_time = DWT_GetTimeline_s();
-                finishhit = 1; // 击球动作结束
+                finishhit = 1;
                 hitting_state = 2;
-            } else {
-                Platform_Set_Target_Pos(0,0,l_tar, Platform->tar.plat_pitch, Platform->tar.plat_yaw, Platform->tar.plat_roll);
             }
         }
     } else {
@@ -670,12 +700,14 @@ void Platform_Jiefa_Cal(float hit) {
             if (cooldown_elapsed >= 2.0f) {
                 // 确保平台在初始位置
                 Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                Platform_Set_OutputState(Platform_fast);
+                Platform_Set_OutputState(Platform_slow);
                 // 击球开始，切换激进参数档以提升加速度
                 // Z_ApplyProfileAggressive();
                 // 击球开始时，轨迹速度清零，目标设定为上限，避免初始抖动
                 l_traj_v = 0.0f;  // 从零开始加速，确保最大加速度
                 l_tar_goal = PLATFORM_Z_MAX;  // 直接设定为最大允许高度
+                pitch_traj_v = 0.0f;
+                roll_traj_v  = 0.0f;
                 finishhit = 0;
                 hitting_state = 1;
             } else {
@@ -755,8 +787,13 @@ void Platform_Set_ControlMode(uint8_t mode) {
 
 // 设置输出状态 state
 void Platform_Set_OutputState(uint8_t state) {
-  	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-  	Platform->output_state = state;
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    Platform->output_state = state;
+}
+
+void Platform_Set_Hit_Pose(float pitch, float roll) {
+    hit_pitch_goal = pitch;
+    hit_roll_goal  = roll;
 }
 
 // 顶层状态机
