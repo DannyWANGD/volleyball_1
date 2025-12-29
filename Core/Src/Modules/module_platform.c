@@ -3,19 +3,19 @@
  * 
  *  file         : module_platform.c
  *  Description  : This file contains DeltaPlatform control function
- *  LastEditors  : lkn
- *  Date         : 2024-7-2
- *  LastEditTime : 2024-7-3
+ *  LastEditors  : wd
+ *  Date         : 2025-11-24
+ *  LastEditTime : 2025-11-24
  */
 #include "sys_dwt.h"
 #include <math.h>
- #include "module_communicate.h"
- #include "module_platform.h"
- #include "periph_motor.h"
- #include "sys_const.h"
- #include "alg_math.h"
- #include "cmsis_os.h"
- #include "app_remote.h"
+#include "module_communicate.h"
+#include "module_platform.h"
+#include "periph_motor.h"
+#include "sys_const.h"
+#include "alg_math.h"
+#include "cmsis_os.h"
+#include "app_remote.h"
 #include "periph_remote.h"
  
 Platform_DataTypeDef Platform_Data;
@@ -39,14 +39,25 @@ typedef struct {
 
 // 不在这里初始化赋值，由 Z_ApplyProfileAggressive/Z_ApplyProfileSafe 在运行时统一赋值
 ZTrajProfile z_profile = {
-    20.0f,   // v_up_max
-    20.0f,   // a_up_max
-    0.01f,   // ret_ratio
-    0.10f,   // brake_gain
-    0.05f,  // boost_err
-    4.5f,   // boost_gain
-    35.0f   // accel_abs_max
+    0.0f,   // v_up_max
+    0.0f,   // a_up_max
+    0.0f,   // ret_ratio
+    0.0f,   // brake_gain
+    0.0f,  // boost_err
+    0.0f,   // boost_gain
+    0.0f   // accel_abs_max
 };
+
+//20251205 激进版本
+// ZTrajProfile z_profile = {
+//     20.0f,   // v_up_max
+//     20.0f,   // a_up_max
+//     0.01f,   // ret_ratio
+//     0.10f,   // brake_gain
+//     0.05f,  // boost_err
+//     4.5f,   // boost_gain
+//     35.0f   // accel_abs_max
+// };
 
 // 20251118 阶段性参数调整
 // ZTrajProfile z_profile = {
@@ -150,8 +161,7 @@ void Platform_Init() {
 	Platform->last_update_tick = DWT_GetTimeline_us();
 	Platform->error_code = 0;
 
-    // 应用默认轨迹配置并同步旧参数（即插即用）
-    // Z_ApplyProfileAggressive();
+    Z_ApplyProfileSafe();
 
 
 }
@@ -165,7 +175,8 @@ float l_tar = 0.12f; //目标高度初始化为初始高度
 
 
 // 新增：击球位姿控制相关变量
-static uint8_t hitting_state = 0; // 0-空闲, 1-击球中, 2-回位中
+typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_RETURNING = 2, STATE_COOLDOWN = 3 } HitState_t;
+static HitState_t hit_state = STATE_IDLE;
 
 uint8_t output_state;
 uint64_t last_output_time;
@@ -199,28 +210,28 @@ void Platform_Update_Fdb() {
 // 安全监控函数，用于检测系统运行中的异常情况
 // 在其他地方（通常是CAN接收中断中），当收到对应电机的数据时，这个计数器会被清零。
 // 如果长时间未收到数据，计数值会持续累加，最终在 Platform_Check 中触发离线错误。
-// void Platform_Check() {
+void Platform_Check() {
 	
-// 	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-// 	if(Motor_Pitch_Front_Motor.watchdog>20)
-// 		{Platform->error_code = 1;}
-// 		if(Motor_Pitch_Left_Motor.watchdog>20)
-// 			{Platform->error_code = 2;}	
-// 		if(Motor_Pitch_Right_Motor.watchdog>20)
-// 			{Platform->error_code = 3;}		
-// 		if(fabsf(Motor_Pitch_Left_Motor.encoder.torque + Motor_Pitch_Right_Motor.encoder.torque)>20.0f)
-// 		{watchdog2++;}
-// 		else{watchdog2=0;}
-// 	if(watchdog2>20){
-// 			Platform->error_code = 4;
-// 		}
+	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+	if(Motor_Pitch_Front_Motor.watchdog>20)
+		{Platform->error_code = 1;}
+		if(Motor_Pitch_Left_Motor.watchdog>20)
+			{Platform->error_code = 2;}	
+		if(Motor_Pitch_Right_Motor.watchdog>20)
+			{Platform->error_code = 3;}		
+		if(fabsf(Motor_Pitch_Left_Motor.encoder.torque + Motor_Pitch_Right_Motor.encoder.torque)>20.0f)
+		{watchdog2++;}
+		else{watchdog2=0;}
+	if(watchdog2>20){
+			Platform->error_code = 4;
+		}
 	
-// // if(Platform->state==Platform_3degree && Motor_Pitch_Left_Motor.encoder.torque==0  && Motor_Pitch_Left_Motor.output!=0)
-// // {//Platform->error_code = 5;
-// // 	}
-// // if(Platform->state==Platform_3degree && Motor_Pitch_Right_Motor.encoder.torque==0 && Motor_Pitch_Right_Motor.output!=0)
-// // {//Platform->error_code = 6;
-// }
+// if(Platform->state==Platform_3degree && Motor_Pitch_Left_Motor.encoder.torque==0  && Motor_Pitch_Left_Motor.output!=0)
+// {//Platform->error_code = 5;
+// 	}
+// if(Platform->state==Platform_3degree && Motor_Pitch_Right_Motor.encoder.torque==0 && Motor_Pitch_Right_Motor.output!=0)
+// {//Platform->error_code = 6;
+}
 
 // 底层力矩输出接口
 // 可调输出力矩上限（提升加速度能力，谨慎调高）
@@ -413,8 +424,8 @@ void Platform_Cal_3Degree_IK_Output() {
 static float l_traj_v   = 0.0f;   // 高度指令的速度状态
 static float l_tar_goal = 0.12f;  // 目标高度（与 l_tar 同单位）
 static const float l_tar_tol = 1e-3f;    // 目标收敛阈值
-static float hit_pitch_goal = 10.0f;
-static float hit_roll_goal  = 5.0f;
+static float hit_pitch_goal = 0.0f;
+static float hit_roll_goal  = 0.0f;
 
 // 已移除 legacy 参数，直接使用 z_profile 与派生函数
 
@@ -429,12 +440,12 @@ static float hit_roll_goal  = 5.0f;
 //     z_profile.accel_abs_max = 25.0f;  // 若电机/结构允许
 // }
 static inline void Z_ApplyProfileSafe(void) {
-    z_profile.v_up_max      = 15.0f;
-    z_profile.a_up_max      = 15.0f;
+    z_profile.v_up_max      = 20.0f;
+    z_profile.a_up_max      = 40.0f;
     z_profile.ret_ratio     = 0.01f;
-    z_profile.brake_gain    = 0.05f;
-    z_profile.boost_err     = 0.03f;
-    z_profile.boost_gain    = 3.00f;
+    z_profile.brake_gain    = 0.10f;
+    z_profile.boost_err     = 0.05f;
+    z_profile.boost_gain    = 1.00f;
     z_profile.accel_abs_max = 30.0f;
 }
 
@@ -473,6 +484,9 @@ static inline int Traj_Update(float goal, float dt, float v_set, float a_limit,
     if (is_z && abs_e > z_profile.boost_err && e > 0.0f) {
         a_cap *= z_profile.boost_gain;
         if (a_cap > z_profile.accel_abs_max) a_cap = z_profile.accel_abs_max;
+    }
+    if (is_z && goal > (*state)) {
+        if (a_cap < z_profile.accel_abs_max) a_cap = z_profile.accel_abs_max;
     }
     
     // 处于未到达阶段：以加速度受限将速度追向目标方向
@@ -568,33 +582,33 @@ static inline int AnglesReady(float pitch_goal, float roll_goal, float ang_tol, 
 }
 
 // 对外接口：将目标位姿转为丝滑的轨迹目标
-void Platform_Set_Target_Pos_Smooth(float x, float y, float z_goal,
-                                    float pitch_goal, float yaw_goal, float roll_goal)
-{
-    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-    float dt = Platform->update_dt;
-    if (dt <= 0.0f || dt > 0.05f) {
-        dt = 1.0f; // 5ms 安全步长
-    }
+// void Platform_Set_Target_Pos_Smooth(float x, float y, float z_goal,
+//                                     float pitch_goal, float yaw_goal, float roll_goal)
+// {
+//     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+//     float dt = Platform->update_dt;
+//     if (dt <= 0.0f || dt > 0.05f) {
+//         dt = 1.0f; // 5ms 安全步长
+//     }
 
-    (void)Traj_Update(z_goal, dt, REMOTE_Z_V_MAX, REMOTE_Z_A_MAX,
-                      &l_tar, &l_traj_v,
-                      Initial_Z_Position, PLATFORM_Z_MAX,
-                      l_tar_tol, 1);
+//     (void)Traj_Update(z_goal, dt, REMOTE_Z_V_MAX, REMOTE_Z_A_MAX,
+//                       &l_tar, &l_traj_v,
+//                       Initial_Z_Position, PLATFORM_Z_MAX,
+//                       l_tar_tol, 1);
 
-    // 角度：按速度/加速度上限做平滑推进（单位：度）
-    (void)Traj_Update(pitch_goal, dt, REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-                      &Platform->tar.plat_pitch, &pitch_traj_v, -30.0f, 30.0f, 1e-3f, 0);
-    // (void)Platform_Update_Angle_TrajWithUserSpeed(yaw_goal,   dt, REMOTE_YAW_V_MAX,   REMOTE_YAW_A_MAX,
-    //                                               &Platform->tar.plat_yaw,   &yaw_traj_v,   -30.0f, 30.0f);
-    (void)Traj_Update(roll_goal,  dt, REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX,
-                      &Platform->tar.plat_roll,  &roll_traj_v,  -45.0f, 45.0f, 1e-3f, 0);
+//     // 角度：按速度/加速度上限做平滑推进（单位：度）
+//     (void)Traj_Update(pitch_goal, dt, REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+//                       &Platform->tar.plat_pitch, &pitch_traj_v, -30.0f, 30.0f, 1e-3f, 0);
+//     // (void)Platform_Update_Angle_TrajWithUserSpeed(yaw_goal,   dt, REMOTE_YAW_V_MAX,   REMOTE_YAW_A_MAX,
+//     //                                               &Platform->tar.plat_yaw,   &yaw_traj_v,   -30.0f, 30.0f);
+//     (void)Traj_Update(roll_goal,  dt, REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX,
+//                       &Platform->tar.plat_roll,  &roll_traj_v,  -45.0f, 45.0f, 1e-3f, 0);
 
-    // 更新目标位姿（X/Y 保持原接口习惯）
-    Platform->tar.plat_x = x;
-    Platform->tar.plat_y = y;
-    Platform->tar.plat_z = l_tar; // 已由 Z 平滑函数更新
-}
+//     // 更新目标位姿（X/Y 保持原接口习惯）
+//     Platform->tar.plat_x = x;
+//     Platform->tar.plat_y = y;
+//     Platform->tar.plat_z = l_tar; // 已由 Z 平滑函数更新
+// }
 
 // 封装：激进/平稳两套丝滑接口（切档后调用统一 Smooth）
 // void Platform_Set_Target_Pos_Smooth_Aggressive(float x,float y,float z,float pitch,float yaw,float roll)
@@ -632,13 +646,10 @@ void Platform_Jiefa_Cal(float hit) {
     // 判据阈值（无需时间窗口）
     const float z_top_tol     = 0.001f;   // 距离上限的收敛阈值
     const float v_near_zero   = 0.01f;   // 认为速度近零的阈值（m/s）
-    const float ang_tol       = 1.0f; // 认为角度近零的阈值（度）
-    const float v_ang_near_zero = 1.5f; // 认为角度近零的阈值（度/s）
+    const float ang_tol       = 3.0f; // 认为角度近零的阈值（度）
+    const float v_ang_near_zero = 3.0f; // 认为角度近零的阈值（度/s）
 
-    if (finishhit == 0) {
-        // 击球进行：根据位置/速度/制动判据切换到回落
-        // 上升阶段（击球中）：快速输出，Z 按上升限速推进，pitch/roll 并行平滑逼近击打角
-        if (hitting_state == 1) {
+    if (hit_state == STATE_RISING) {
             l_tar_goal = PLATFORM_Z_MAX;
             Platform_Set_OutputState(Platform_fast);
             // Z 高度推进（加速度受限 + 接近顶端线性刹停）
@@ -661,12 +672,10 @@ void Platform_Jiefa_Cal(float hit) {
             // 满足 Z 到顶/接近/速度近零/进入刹车段，且角度就绪 → 切换到回落
             if (reached_up_z || (fabsf(e_top) <= z_top_tol) || (fabsf(l_traj_v) <= v_near_zero) || entering_brake) {
                 if (angles_ready) {
-                    hitting_state = 2;
+                    hit_state = STATE_RETURNING;
                 }
             }
-        } 
-        // 回落阶段：慢档输出，Z 按下降限速推进，pitch/roll 以低速回归 0
-        if (hitting_state == 2) {
+    } else if (hit_state == STATE_RETURNING) {
             Platform_Set_OutputState(Platform_slow);
             const float scale = z_profile.ret_ratio;
             // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
@@ -689,37 +698,40 @@ void Platform_Jiefa_Cal(float hit) {
             if (reached_dn_z && pitch_back && roll_back) {
                 start_back_time = DWT_GetTimeline_s();
                 finishhit = 1;
-                hitting_state = 2;
+                hit_state = STATE_COOLDOWN;
             }
-        }
     } else {
-        // 待机/冷却
-        if ((int)hit > 0.5f) {
-            // 若处于冷却期（自回位完成起未满2秒），忽略触发
-            float cooldown_elapsed = DWT_GetTimeline_s() - start_back_time;
-            if (cooldown_elapsed >= 2.0f) {
-                // 确保平台在初始位置
-                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+        float cooldown_elapsed = DWT_GetTimeline_s() - start_back_time;
+        int trigger = ((int)hit > 0.8f && (int)hit < 1.2f);
+        if (hit_state == STATE_COOLDOWN) {
+            if (cooldown_elapsed >= 2.0f && trigger) {
                 Platform_Set_OutputState(Platform_slow);
-                // 击球开始，切换激进参数档以提升加速度
-                // Z_ApplyProfileAggressive();
-                // 击球开始时，轨迹速度清零，目标设定为上限，避免初始抖动
-                l_traj_v = 0.0f;  // 从零开始加速，确保最大加速度
-                l_tar_goal = PLATFORM_Z_MAX;  // 直接设定为最大允许高度
+                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+                l_traj_v = 0.0f;
+                l_tar_goal = PLATFORM_Z_MAX;
                 pitch_traj_v = 0.0f;
                 roll_traj_v  = 0.0f;
                 finishhit = 0;
-                hitting_state = 1;
+                hit_state = STATE_RISING;
             } else {
-                // 维持初始位姿与中档输出，直到冷却结束
                 Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
                 Platform_Set_OutputState(Platform_middle);
-                hitting_state = 0; // 空闲
             }
         } else {
-            Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-            Platform_Set_OutputState(Platform_middle);
-            hitting_state = 0; // 空闲
+            if (trigger && cooldown_elapsed >= 2.0f) {
+                Platform_Set_OutputState(Platform_slow);
+                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+                l_traj_v = 0.0f;
+                l_tar_goal = PLATFORM_Z_MAX;
+                pitch_traj_v = 0.0f;
+                roll_traj_v  = 0.0f;
+                finishhit = 0;
+                hit_state = STATE_RISING;
+            } else {
+                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+                Platform_Set_OutputState(Platform_middle);
+                hit_state = STATE_IDLE;
+            }
         }
     }
 };
@@ -883,7 +895,7 @@ void Platform_Output() {
  * @retval     击球状态 (0-空闲, 1-击球中, 2-回位中)
  */
 uint8_t Platform_Get_Hitting_State(void) {
-    return hitting_state;
+    return (uint8_t)hit_state;
 }
 
 /**
@@ -892,7 +904,7 @@ uint8_t Platform_Get_Hitting_State(void) {
  * @retval     None
  */
 void Platform_Reset_Hitting_State(void) {
-    hitting_state = 0;
+    hit_state = STATE_IDLE;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////

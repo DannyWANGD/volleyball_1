@@ -1,0 +1,159 @@
+@startuml
+title Platform_Jiefa(hit) 执行后的控制与数据流（总体流程）
+
+partition "Remote 层" as REMOTE {
+  start
+  :Remote_Task 周期执行;
+  :Remote_ControlCom();
+  if (s0 == UP and s1 == UP) then (触发击发)
+    :Platform_Set_ControlMode(Platform_Jiefa);
+    :Platform_Jiefa_Cal(1.0f);
+  else (未触发)
+    :保持当前模式;
+  endif
+}
+
+partition "Platform 状态机" as PLAT {
+  :Platform_Update_Fdb → update_dt;
+  if (hit_state == STATE_RISING) then (上升阶段)
+    :Traj_Update(Z→PLATFORM_Z_MAX,
+    速度上限=v_up_max,
+    加速度上限=a_up_max,
+    goal>state 时强制 a_cap=accel_abs_max);
+    :AngleSmoothUpdate(pitch_goal, roll_goal);
+    :WriteTargetFromState → 刷新 Platform->tar(x,y,z,pitch,yaw,roll);
+    :判定到顶/近顶/速度近零/进入刹车段
+    & 角度就绪 → STATE_RETURNING;
+  elseif (hit_state == STATE_RETURNING) then (回位阶段)
+    :Traj_Update(Z→Initial_Z,
+    v/a 按 ret_ratio 缩放,
+    下降提前刹车);
+    :AngleSmoothUpdate(0,0) 按 ret_ratio;
+    :WriteTargetFromState;
+    :判定 Z≈初始且速度≈0
+    & 角度≈0或角速度≈0 →
+    记录 start_back_time,
+    finishhit=1,
+    进入 STATE_COOLDOWN;
+  else (STATE_IDLE/STATE_COOLDOWN)
+    :冷却判定 cooldown_elapsed
+    与触发位 trigger;
+    if (冷却到时 且 trigger==1) then (再次击发)
+      :清零轨迹速度 l_traj_v,
+      设定 l_tar_goal=PLATFORM_Z_MAX;
+      :hit_state = STATE_RISING;
+    else
+      :维持初始位姿与 Platform_middle;
+    endif
+  endif
+}
+
+partition "控制与解算" as CTRL {
+  :Platform_Control();
+  if (ctrl_mode == Platform_Jiefa) then (执行IK/输出)
+    :Platform_Cal_3Degree_IK_Output();
+  else
+    :其它模式路径;
+  endif
+}
+
+partition "逆运动学 → 闭环" as IKPID {
+  :用 Platform->tar 解算
+  theta1,theta2,theta3;
+  :Platform_Set_Angle_Output
+  (rad2deg(theta1..3), yaw 目标);
+  if (output_state ∈ {slow,middle,fast}) then (串级闭环)
+    :CASCADE_PITCH & CASCADE_YAW
+    (位置环→速度环→力矩输出)
+    → torque1..torque6;
+  endif
+  :Platform_Set_Torque_Output
+  (torque1..6 限幅并写入电机对象);
+}
+
+partition "电机下发" as BUS {
+  :Platform_Output();
+  :三组依次发送 Motor_SendMotorGroupOutput(...)
+  组间 DWT_Delayus(PLATFORM_OUTPUT_GAP_US);
+  stop
+}
+
+legend right
+  关键变量/判据：
+  - hit_state: STATE_RISING/RETURNING/COOLDOWN/IDLE
+  - start_back_time, finishhit: 冷却与完成标志
+  - z_profile: v_up_max, a_up_max, ret_ratio,
+    brake_gain, boost_err, boost_gain, accel_abs_max
+  - 触发位 trigger: (int)hit ∈ (0.8, 1.2)
+  - 冷却判定 cooldown_elapsed ≥ 2.5s
+endlegend
+
+note right of PLAT
+  代码参考：
+  - Traj_Update 逻辑：Core/Src/Modules/module_platform.c:468-531
+  - 上升/回位状态机：Core/Src/Modules/module_platform.c:652-703
+  - 冷却与再次触发：Core/Src/Modules/module_platform.c:704-735
+end note
+
+note right of IKPID
+  代码参考：
+  - Platform_Cal_3Degree_IK_Output：Core/Src/Modules/module_platform.c:378-409
+  - Platform_Set_Angle_Output：Core/Src/Modules/module_platform.c:288-354
+  - CASCADE 宏：Core/Src/Modules/module_platform.c:262-283
+end note
+
+note right of BUS
+  代码参考：
+  - Platform_Set_Torque_Output：Core/Src/Modules/module_platform.c:241-259
+  - Platform_Output：Core/Src/Modules/module_platform.c:856-880
+end note
+
+@enduml
+
+@startuml
+title Platform_Jiefa(hit) 数据流时序（Sequence）
+
+actor Remote as R
+participant "Remote_ControlCom" as RC
+participant "Platform (状态机)" as P
+participant "Traj_Update" as TJ
+participant "AngleSmoothUpdate" as AS
+participant "WriteTargetFromState" as WT
+participant "Platform_Control" as PC
+participant "IK 解算" as IK
+participant "PID 串级输出" as PID
+participant "Torque 写入" as TO
+participant "Motor 发送" as MO
+
+R -> RC : s0==UP && s1==UP
+RC -> P : Platform_Set_ControlMode(Platform_Jiefa)
+RC -> P : Platform_Jiefa_Cal(1.0f)
+
+P -> TJ : Z→PLATFORM_Z_MAX
+note right: a_limit=a_up_max，goal>state 时 a_cap=accel_abs_max
+P -> AS : pitch/roll 目标推进
+P -> WT : 刷新 Platform->tar
+
+P -> PC : Platform_Control()
+PC -> IK : 用 tar 解算 theta1..3
+IK -> PID : Platform_Set_Angle_Output()
+PID -> TO : Platform_Set_Torque_Output(torque1..6)
+TO -> MO : Platform_Output()
+MO -> MO : Motor_SendMotorGroupOutput(组1)
+MO -> MO : DWT_Delayus(gap)
+MO -> MO : Motor_SendMotorGroupOutput(组2)
+MO -> MO : DWT_Delayus(gap)
+MO -> MO : Motor_SendMotorGroupOutput(组3)
+
+RC <-- R : 下一周期（2ms）
+
+note right of RC
+  入口参考：Core/Src/Application/app_remote.c:100-111
+end note
+
+note right of P
+  状态切换与判据：Core/Src/Modules/module_platform.c:652-735
+end note
+
+@enduml
+

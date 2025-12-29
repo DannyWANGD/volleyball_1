@@ -223,3 +223,11 @@ void Communicate_RXCallback(UART_HandleTypeDef* huart) {
 }
 
 
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if(huart->Instance == USART1) // 假设是 USART1
+    {
+        // 在这里打断点！
+        // 如果进来了，说明发生了 Overrun 或 Noise 错误
+    }
+}

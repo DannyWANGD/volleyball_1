@@ -24,14 +24,19 @@
 // 参数: buff 接收到的数据缓冲区指针
 // 返回值: uint32_t 实际处理的数据长度
 static uint32_t _set_Platform_Data_(uint8_t *buff); 
+static uint32_t _set_Platform_Data_1(uint8_t *buff); 
 //static uint32_t _set_Gimbal_Data_(uint8_t *buff); // Gimbal data receive function
 static uint32_t _set_Chassis_Data_(uint8_t *buff); // Chassis data receive function
+
+float pitch;
+float roll;
 
 // Communication receive function table
 // 每一个通信指令对应一个处理函数
 // CommCmd_Receive 数组中的每一个元素都是一个 Comm_ReceiveEntry 结构体
 // 该结构体包含一个函数指针 bus_func，指向具体的处理函数
 Comm_ReceiveEntry CommCmd_Receive[Const_Comm_Receive_BUFF_SIZE] = {
+  // {&_set_Platform_Data_1},
   {&_set_Platform_Data_},
   {&_set_Chassis_Data_}
 };
@@ -52,6 +57,23 @@ static uint32_t _set_Platform_Data_(uint8_t *buff) {
   return 4; // 这个返回值用于告诉调用者实际处理了多少数据,方便后续的数据处理和管理
 
 }
+static uint32_t _set_Platform_Data_1(uint8_t *buff){
+
+  Remote_RemoteDataTypeDef *rc = Remote_GetRemoteDataPtr(); 
+  Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+
+  pitch = buff2float(buff);
+  roll = buff2float(buff + 4);
+
+  return 8;
+
+}
+
+
+
+
+
+
 
 // static uint32_t _set_Gimbal_Data_(uint8_t *buff) {
 	

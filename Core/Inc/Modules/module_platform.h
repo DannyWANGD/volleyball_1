@@ -117,7 +117,7 @@ void Platform_Set_ControlMode(uint8_t mode) ;
 void Platform_Set_OutputState(uint8_t state) ;
 void Platform_Set_Target_Pos(float x,float y,float z,float pitch,float yaw,float roll) ;
 // 遥控/人机接口：丝滑轨迹版目标位姿设置（速度/加速度受限）
-void Platform_Set_Target_Pos_Smooth(float x,float y,float z,float pitch,float yaw,float roll) ;
+// void Platform_Set_Target_Pos_Smooth(float x,float y,float z,float pitch,float yaw,float roll) ;
 // 封装：激进/平稳两套轨迹接口（内部切换 z_profile）
 void Platform_Set_Target_Pos_Smooth_Aggressive(float x,float y,float z,float pitch,float yaw,float roll);
 void Platform_Set_Target_Pos_Smooth_Stable(float x,float y,float z,float pitch,float yaw,float roll);
