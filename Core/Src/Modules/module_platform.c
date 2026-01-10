@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
- float PLATFORM_Z_MAX = 0.3f;
+ float PLATFORM_Z_MAX = 0.28f;
 
 // 轨迹平滑控制（Z 高度）——参数与状态（简化版：统一配置 + 兼容宏）
 typedef struct {
@@ -58,6 +58,22 @@ ZTrajProfile z_profile = {
 //     4.5f,   // boost_gain
 //     35.0f   // accel_abs_max
 // };
+
+// ========= 开环加速模式配置（Open-Loop Boost Mode）=========
+// 原理：初始阶段直接输出最大扭矩加速，接近顶点时切换PID减速
+typedef struct {
+    uint8_t  enabled;           // 模式使能
+    float    pid_switch_dist;   // 切换到PID的距离阈值（距顶点，单位m）
+    float    max_torque;        // 开环最大扭矩（Nm）
+    uint8_t  in_openloop;       // 当前是否处于开环加速状态
+} OpenLoopBoostConfig;
+
+static OpenLoopBoostConfig boost_cfg = {
+    .enabled         = 1,       // 默认启用
+    .pid_switch_dist = 0.05f,   // 距顶点5cm时切换到PID减速
+    .max_torque      = 15.0f,   // 最大扭矩
+    .in_openloop     = 0
+};
 
 // 20251118 阶段性参数调整
 // ZTrajProfile z_profile = {
@@ -162,6 +178,7 @@ void Platform_Init() {
 	Platform->error_code = 0;
 
     Z_ApplyProfileSafe();
+    Platform_Reset_OpenLoop_Boost(); // 初始化开环加速状态
 
 
 }
@@ -237,6 +254,64 @@ void Platform_Check() {
 // 可调输出力矩上限（提升加速度能力，谨慎调高）
 #define PITCH_TORQUE_LIMIT   27.0f
 #define YAW_TORQUE_LIMIT     27.0f
+
+/**
+ * @brief      开环加速模式：直接输出最大扭矩（绕过PID）
+ * @param      direction  加速方向（1=向上推，-1=向下）
+ * @retval     None
+ * @note       用于初始阶段快速加速，充分利用电机峰值扭矩
+ */
+void Platform_OpenLoop_Boost_Output(int8_t direction) {
+    float boost_torque = boost_cfg.max_torque * direction;
+    // Pitch电机全力输出（考虑电机安装方向）
+    // 根据坐标系：front和left是负向，right是正向
+    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor, -boost_torque - 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor,  -boost_torque - 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor,  boost_torque + 1.5f);
+    // Yaw电机保持位置（小扭矩）
+    Motor_SetMotorOutput(&Motor_Yaw_Front_Motor, 0.0f);
+    Motor_SetMotorOutput(&Motor_Yaw_Left_Motor,  0.5f);
+    Motor_SetMotorOutput(&Motor_Yaw_Right_Motor, -0.5f);
+}
+
+/**
+ * @brief      检查是否应使用开环加速（距顶点较远时开环，接近时切PID）
+ * @param      current_z  当前Z高度
+ * @param      target_z   目标Z高度（顶点）
+ * @retval     1=开环加速中，0=使用PID控制
+ */
+uint8_t Platform_Check_OpenLoop_Boost(float current_z, float target_z) {
+    if (!boost_cfg.enabled) return 0;
+    
+    float dist_to_top = target_z - current_z;
+    
+    // 距离顶点大于阈值 → 开环加速
+    if (dist_to_top > boost_cfg.pid_switch_dist) {
+        boost_cfg.in_openloop = 1;
+        Platform_OpenLoop_Boost_Output(1); // 向上加速
+        return 1;
+    } else {
+        // 接近顶点 → 切换到PID减速
+        boost_cfg.in_openloop = 0;
+        return 0;
+    }
+}
+
+/** @brief 重置开环加速状态（用于新的击球周期） */
+void Platform_Reset_OpenLoop_Boost(void) {
+    boost_cfg.in_openloop = 0;
+}
+
+/** @brief 设置开环加速参数（供外部调参） */
+void Platform_Set_Boost_Params(float pid_switch_dist, float max_torque) {
+    boost_cfg.pid_switch_dist = pid_switch_dist;
+    boost_cfg.max_torque = max_torque;
+}
+
+/** @brief 启用/禁用开环加速模式 */
+void Platform_Enable_OpenLoop_Boost(uint8_t enable) {
+    boost_cfg.enabled = enable;
+}
 
 void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float torque4,float torque5,float torque6){
 
@@ -446,7 +521,7 @@ static inline void Z_ApplyProfileSafe(void) {
     z_profile.brake_gain    = 0.10f;
     z_profile.boost_err     = 0.05f;
     z_profile.boost_gain    = 1.00f;
-    z_profile.accel_abs_max = 30.0f;
+    z_profile.accel_abs_max = 20.0f;
 }
 
 /**
@@ -538,7 +613,7 @@ static inline int Traj_Update(float goal, float dt, float v_set, float a_limit,
 // 提升响应：在安全前提下增大速度/加速度上限
 #define REMOTE_Z_V_MAX      1.20f   // m/s   (原 0.80)
 #define REMOTE_Z_A_MAX      6.00f   // m/s^2 (原 3.00)
-#define REMOTE_PITCH_V_MAX  180.0f  // deg/s (原 120.0)
+#define REMOTE_PITCH_V_MAX  360.0f  // deg/s (原 120.0)
 #define REMOTE_PITCH_A_MAX  900.0f  // deg/s^2 (原 600.0)
 #define REMOTE_ROLL_V_MAX   240.0f  // deg/s (原 180.0)
 #define REMOTE_ROLL_A_MAX   1100.0f // deg/s^2 (原 800.0)
@@ -652,6 +727,28 @@ void Platform_Jiefa_Cal(float hit) {
     if (hit_state == STATE_RISING) {
             l_tar_goal = PLATFORM_Z_MAX;
             Platform_Set_OutputState(Platform_fast);
+            
+            // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
+            // -----------------------------------------------------------------------------
+            // ===== 开环加速检测：距顶点较远时直接输出最大扭矩 =====
+            if (Platform_Check_OpenLoop_Boost(l_tar, PLATFORM_Z_MAX)) {
+                // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
+                l_tar += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
+                l_traj_v += z_profile.a_up_max * dt; // 估算速度
+                if (l_tar > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
+                    l_tar = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
+                }
+                // 角度仍按平滑推进
+                AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
+                                  REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+                                  REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
+                WriteTargetFromState();
+                return; // 直接返回，不执行后续PID控制
+            }
+            // ===== 接近顶点：使用PID减速控制 =====
+            // -----------------------------------------------------------------------------
+
+
             // Z 高度推进（加速度受限 + 接近顶端线性刹停）
             int reached_up_z = Traj_Update(PLATFORM_Z_MAX, dt, v_set_up, a_limit_up,
                                            &l_tar, &l_traj_v,
@@ -667,15 +764,12 @@ void Platform_Jiefa_Cal(float hit) {
             float e_top = PLATFORM_Z_MAX - l_tar;
             float stop_dist_up = (l_traj_v * l_traj_v) / (2.0f * a_limit_up);
             int entering_brake = (fabsf(e_top) <= stop_dist_up * z_profile.brake_gain);
-            // 角度就绪：到目标角或角速度近零
-            int angles_ready = AnglesReady(hit_pitch_goal, hit_roll_goal, ang_tol, v_ang_near_zero);
-            // 满足 Z 到顶/接近/速度近零/进入刹车段，且角度就绪 → 切换到回落
+            // 满足 Z 到顶/接近/速度近零/进入刹车段 → 切换到回落（避免等待角度导致卡死）
             if (reached_up_z || (fabsf(e_top) <= z_top_tol) || (fabsf(l_traj_v) <= v_near_zero) || entering_brake) {
-                if (angles_ready) {
-                    hit_state = STATE_RETURNING;
-                }
+                hit_state = STATE_RETURNING;
             }
     } else if (hit_state == STATE_RETURNING) {
+            Platform_Reset_OpenLoop_Boost(); // 重置开环加速状态
             Platform_Set_OutputState(Platform_slow);
             const float scale = z_profile.ret_ratio;
             // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
@@ -819,7 +913,17 @@ void Platform_Control() {
 		  	Platform_Cal_3Degree_IK_Output();
       		break;
 		case Platform_Jiefa:
-			Platform_Cal_3Degree_IK_Output(); 
+
+            // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
+            // -----------------------------------------------------------------------------
+            // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
+            if (boost_cfg.enabled && boost_cfg.in_openloop) {
+                Platform_OpenLoop_Boost_Output(1);
+                break;
+            }
+            // ----------------------------------------------------------------------------
+            
+            Platform_Cal_3Degree_IK_Output();
 			break;				
 		case Platform_Chuanqiu:
 			Platform_Set_OutputState(Platform_fast); 

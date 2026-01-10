@@ -128,6 +128,15 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
 void Platform_Dianqiu_Cal(float hit,uint8_t distance);
 void Platform_Jiefa_Cal(float hit);
 void Platform_Check();
+
+// 开环加速模式接口（用于调参和控制）
+void Platform_Set_Boost_Params(float pid_switch_dist, float max_torque);
+void Platform_Enable_OpenLoop_Boost(uint8_t enable);
+void Platform_Reset_OpenLoop_Boost(void);
+
+// 击球位姿控制接口
+void Platform_Set_Hit_Pose(float pitch, float roll);
+
 // 简化接口：姿态设置请调用 Platform_Set_Target_Pos，击球触发调用 Platform_Jiefa_Cal(1.0f)
  // Deprecated external interface: now internally used by Platform_Jiefa_Cal
  // Keep for reference, but do not expose externally.
