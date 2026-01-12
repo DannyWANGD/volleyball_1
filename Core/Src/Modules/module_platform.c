@@ -252,9 +252,7 @@ void Platform_Init() {
 
     Z_ApplyProfileSafe();
     Platform_Reset_OpenLoop_Boost(); // 初始化开环加速状态
-		A1_Init();
-
-
+    A1_Init();
 }
 
 uint16_t watchdog2;
@@ -294,6 +292,7 @@ void Platform_Update_Fdb() {
 	
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
+    Motor_Pitch_Left_Motor_A1.watchdog += 1;
 	Motor_Pitch_Right_Motor_A1.watchdog += 1; 
 	
 	// 计算自上次调用以来经过的精确时间，为PID的微分项（D）提供准确的时间基准
@@ -410,7 +409,7 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
   	Motor_SetMotorOutput(&Motor_Yaw_Left_Motor ,torque5) ;
   	Motor_SetMotorOutput(&Motor_Yaw_Right_Motor,torque6) ;
 	
-		A1_Position_Control();
+    A1_Position_Control();
 
  }
 
@@ -1028,15 +1027,13 @@ void Platform_Control() {
 }
 
 // 输出分组节流配置：用于在发送不同电机组数据之间留出时间间隔，避免总线/电源瞬时拥塞。
-// 为最大化击球响应速度，最小化延时 - 设置为50us并启用阻塞模式以确保命令顺序执行
-#ifndef PLATFORM_OUTPUT_GAP_US
-#define PLATFORM_OUTPUT_GAP_US 80U  // 最小化延时，提高响应速度
-#endif
-#ifndef PLATFORM_OUTPUT_BLOCKING
-#define PLATFORM_OUTPUT_BLOCKING 1  // 保持阻塞以确保命令顺序
+// A1电机RS485通信时序：发送34字节命令 + 等待电机处理 + 接收78字节反馈
+// 按4.5Mbps波特率：发送约76us，接收约173us，加上电机处理时间，建议间隔>=500us
+#ifndef PLATFORM_A1_OUTPUT_GAP_US
+#define PLATFORM_A1_OUTPUT_GAP_US 800U  // A1电机发送间隔，需要等待反馈完成
 #endif
 
-// 为三个电极发送数据
+// 为三个电机发送数据
 void Platform_Output() {
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr(); 
         
@@ -1060,8 +1057,16 @@ void Platform_Output() {
     Motor_SendMotorGroupOutput(Motor_groupHandle[5]) ;
     Motor_SendMotorGroupOutput(Motor_groupHandle[2]) ;
     // last_output_time = DWT_GetTimeline_us();*/
-		
-		Motor_SendMotorGroupOutput(&Motor_Pitch_Right_Motors_A1);
+    
+    // A1电机发送：必须保证每个电机命令发送后有足够时间接收反馈
+    // RS485是半双工，发送期间无法接收，需要等待反馈数据完整接收后再发下一个
+    Motor_SendMotorGroupOutput(&Motor_Pitch_Front_Motors_A1);
+    DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Front电机反馈
+    Motor_SendMotorGroupOutput(&Motor_Pitch_Left_Motors_A1);
+    DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Left电机反馈
+    Motor_SendMotorGroupOutput(&Motor_Pitch_Right_Motors_A1);
+    DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Right电机反馈
+
     
   }
 

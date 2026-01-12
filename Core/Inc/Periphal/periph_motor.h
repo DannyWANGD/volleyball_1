@@ -18,7 +18,7 @@ extern "C" {
 #include "alg_math.h"
 #include "alg_filter.h"
 
-#define MOTOR_GROUP_NUM 9
+#define MOTOR_GROUP_NUM 10
 #define Const_Motor_MOTOR_TX_EXTID  0x01
 #define Const_Motor_MOTOR_TX_DLC    8
 #define Const_Motor_MOTOR_RX_DLC    8

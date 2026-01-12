@@ -41,7 +41,7 @@ void Gimbal_Init(void)
                     Const_PitchSpdMotorParam[1][0], Const_PitchSpdMotorParam[1][1], Const_PitchSpdMotorParam[2][0], Const_PitchSpdMotorParam[2][1],
                     Const_PitchSpdMotorParam[3][0],Const_PitchSpdMotorParam[3][1], PID_POSITION);
 	
-	Gimbal.motorGroup = Motor_groupHandle[7];
+	Gimbal.motorGroup = Motor_groupHandle[9];
 	Gimbal.init = 1;
 	Gimbal.gimbal_state = Gimbal_Off;
 	Gimbal.Pitch_fdb = 0.0f;
