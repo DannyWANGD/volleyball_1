@@ -120,14 +120,28 @@ void Comm_SendCommData() {
   buscomm->usb_sendBuff[len] = 0X7A;
   buscomm->usb_sendBuff[len + 1 ] = 0XA7;
   // Usb_SendBuff(buscomm->usb_sendBuff, 256);
-  // Uart_SendMessageDMA(Const_Communicate_UART_HANDLER, buscomm->usb_sendBuff, len + 2);
+  Uart_SendMessageDMA(Const_Communicate_UART_HANDLER, buscomm->usb_sendBuff, len + 2);
   buscomm->state = Comm_STATE_CONNECTED;
 }
 
 
 // 数据包校验函数
 static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
-  if (buff == NULL || rxdatalen < 2U) {
+	/*
+    Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
+    
+ 
+    if ((buff[0] == 0x5A) && (buff[1] == 0xA5)) {
+    
+        memcpy(buscomm->usb_watchBuff, buff, rxdatalen);
+        return 1;
+    }  
+    else {
+        return 0;
+    }
+    */
+	
+	if (buff == NULL || rxdatalen < 2U) {
     return 0;
   }
 
@@ -136,19 +150,13 @@ static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
     return 0;
   }
 
-  /* 至少包含: 头(2) + 长度(2) + 尾(2) */
-  if (rxdatalen < 6U) {
-    return 0;
-  }
-
-  /* 尾校验位检查 */
   if ((buff[rxdatalen - 2] != 0x7A) || (buff[rxdatalen - 1] != 0xA7)) {
     return 0;
   }
-
-  /* 长度字段一致性检查：len == 总长度 - 尾部2字节 */
-  uint16_t frame_len = (uint16_t)(buff[2] | (buff[3] << 8));
-  if (frame_len != (uint16_t)(rxdatalen - 2U)) {
+  
+  //if(buff[2] != 0x11)	return 0;
+  uint16_t frame_len = (uint16_t)(buff[3] | (buff[4] << 8));
+  if (frame_len != (uint16_t)(rxdatalen)) {
     return 0;
   }
 
@@ -164,7 +172,6 @@ static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
       memcpy(buscomm->usb_watchBuff, buff, copy_len);
     }
   }
-
   return 1;
 }
 
@@ -182,7 +189,7 @@ void Comm_DecodeData(uint8_t buff[], uint32_t rxdatalen) {
     return; 
   }
   buscomm->rx_dt = DWT_GetDeltaT(&buscomm->last_rx_tick);
-  uint32_t len = 4;
+  uint32_t len = 5;
 
   for (int i = 0; i < Const_Comm_Receive_BUFF_SIZE; i++) {
     if (CommCmd_Receive[i].bus_func != NULL) {

@@ -52,6 +52,7 @@ osThreadId PlatformTaskHandle;
 osThreadId CommunicateTaskHandle;
 osThreadId RemoteTaskHandle;
 osThreadId ChassisTaskHandle;
+osThreadId GimbalTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -63,6 +64,7 @@ void Platform_Task(void const * argument);
 void Communicate_Task(void const * argument);
 void Remote_Task(void const * argument);
 void Chassis_Task(void const * argument);
+void Gimbal_Task(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -128,6 +130,10 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of ChassisTask */
   osThreadDef(ChassisTask, Chassis_Task, osPriorityRealtime, 0, 256);
   ChassisTaskHandle = osThreadCreate(osThread(ChassisTask), NULL);
+
+  /* definition and creation of GimbalTask */
+  osThreadDef(GimbalTask, Gimbal_Task, osPriorityRealtime, 0, 256);
+  GimbalTaskHandle = osThreadCreate(osThread(GimbalTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -223,6 +229,24 @@ __weak void Chassis_Task(void const * argument)
     osDelay(1);
   }
   /* USER CODE END Chassis_Task */
+}
+
+/* USER CODE BEGIN Header_Gimbal_Task */
+/**
+* @brief Function implementing the GimbalTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Gimbal_Task */
+__weak void Gimbal_Task(void const * argument)
+{
+  /* USER CODE BEGIN Gimbal_Task */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END Gimbal_Task */
 }
 
 /* Private application code --------------------------------------------------*/
