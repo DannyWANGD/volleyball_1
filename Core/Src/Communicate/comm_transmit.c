@@ -28,9 +28,9 @@ static uint32_t _send_RUNTick_data(uint8_t *buff);
 
 
 Comm_SendEntry CommCmd_Send[Const_Comm_Transmit_BUFF_SIZE] = {
-    // { _send_Gimbal_data },
-	{ _send_Remote_data },
-    { _send_Platform_data },
+    { _send_Gimbal_data },
+	//{ _send_Remote_data },
+    //{ _send_Platform_data },
 };
 
 static uint32_t _send_Remote_data(uint8_t *buff) {
@@ -65,11 +65,25 @@ static uint32_t _send_Platform_data(uint8_t *buff) {
 }
 
 static uint32_t _send_Gimbal_data(uint8_t *buff) {
+	
+	Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
     
-    Gimbal_DataTypeDef *gimbal = Gimbal_GetDataPtr();
+	Gimbal_TypeDef *gimbal = Gimbal_GetPtr();
+
     float2buff( gimbal->Yaw_fdb, buff);
-    float2buff( gimbal->Pitch_fdb, buff+4);
-    return 8;
+	
+    float2buff( gimbal->Pitch_fdb, buff + 4);
+	
+	if((data->remote.s[0] == Remote_SWITCH_UP || data->remote.s[0] == Remote_SWITCH_MIDDLE) && data->remote.s[1] == Remote_SWITCH_MIDDLE)
+	{
+		float2buff(1.0f, buff + 8);
+	}
+
+	else
+	{
+		float2buff(0.0f, buff + 8);
+	}
+	return 12;
 }
 
 static uint32_t _send_RUNTick_data(uint8_t *buff) {

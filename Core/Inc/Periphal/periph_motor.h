@@ -18,7 +18,7 @@ extern "C" {
 #include "alg_math.h"
 #include "alg_filter.h"
 
-#define MOTOR_GROUP_NUM 8
+#define MOTOR_GROUP_NUM 9
 #define Const_Motor_MOTOR_TX_EXTID  0x01
 #define Const_Motor_MOTOR_TX_DLC    8
 #define Const_Motor_MOTOR_RX_DLC    8
@@ -42,6 +42,7 @@ typedef enum {
 	  Motor_TYPE_A1               = 6,
 	  Motor_TYPE_LK5005		      	= 7,
     Motor_TYPE_Go1              = 8,
+	Motor_TYPE_Dji6020          = 9,
 } Motor_MotorTypeEnum;
 
 typedef enum {
@@ -132,6 +133,15 @@ extern Motor_MotorGroupTypeDef *Motor_groupHandle[MOTOR_GROUP_NUM];
 extern Motor_MotorGroupTypeDef Motor_Yaw_Front_Motors;          // can1 * 3
 extern Motor_MotorGroupTypeDef Motor_Yaw_Left_Motors;
 extern Motor_MotorGroupTypeDef Motor_Yaw_Right_Motors;
+
+extern Motor_MotorGroupTypeDef Motor_Pitch_Front_Motors_A1;        // A1 usart * 3
+extern Motor_MotorGroupTypeDef Motor_Pitch_Left_Motors_A1;   
+extern Motor_MotorGroupTypeDef Motor_Pitch_Right_Motors_A1;
+
+extern Motor_MotorTypeDef Motor_Pitch_Front_Motor_A1;
+extern Motor_MotorTypeDef Motor_Pitch_Left_Motor_A1;
+extern Motor_MotorTypeDef Motor_Pitch_Right_Motor_A1;
+
 extern Motor_MotorGroupTypeDef Motor_Pitch_Front_Motors;        // usart * 1
 extern Motor_MotorGroupTypeDef Motor_Pitch_Left_Motors;   
 extern Motor_MotorGroupTypeDef Motor_Pitch_Right_Motors; 
@@ -179,6 +189,7 @@ void Motor_SendDMMotorTorqueOutput(Motor_MotorGroupTypeDef *pgroup);
 void Motor_Set_DM_MIT_Output(Motor_MotorGroupTypeDef* pgroup1, float pos1, float vel1, float tor1, float kp,float kd);
 void Motor_DM_Basic_Ctrl(Motor_DMBasicCtrlEnum basic);
 void Motor_Send_MIT_Output(Motor_MotorGroupTypeDef *pgroup);
+void Dji6020_encoder_callback(Motor_MotorTypeDef *pmotor, uint8_t rxbuff[], uint32_t len);
 
 #endif
 

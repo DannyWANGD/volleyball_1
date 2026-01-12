@@ -27,16 +27,17 @@ void Platform_Task(void const * argument) {
     // 获取最新的传感器反馈数据
     Platform_Update_Fdb();
     // 进行安全监控
-    Platform_Check();
+    // Platform_Check();
 
-    if(Platform->error_code == 0){
+    /*if(Platform->error_code == 0){
       Platform_Control();
     } else {
       Platform_Set_Torque_Output(0,0,0,0,0,0);
-    }
+    }*/
 
     // 输出控制指令到电机驱动器
-    Platform_Output();
+    Platform_Control();
+		Platform_Output();
     
     osDelay(2);
   }

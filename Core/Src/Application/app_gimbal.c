@@ -1,86 +1,124 @@
 #include "app_gimbal.h"
+#include "periph_remote.h"
 #include "periph_motor.h"
 #include "sys_dwt.h"
 #include "sys_const.h"
+#include "comm_receive.h"
 
-Gimbal_DataTypeDef GimbalData;
-//float yaw = 0.0f, pitch = 0.0f;
+Gimbal_TypeDef Gimbal;
 void Gimbal_Task(void const * argument)
 {
   /* USER CODE BEGIN Gimbal_Task */
 	DWT_DataTypeDef *dwt = DWT_GetDWTDataPtr();
+	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
+	osDelay(1000);
 	
-  /* Infinite loop */
   for(;;)
   {
-	//Gimbal_SetPos(yaw, pitch);
-//	GimbalData.update_dt = DWT_GetDeltaT(&GimbalData.last_update_time);
-    
-//	GimbalData.Yaw_fdb = GimbalData.yaw_motorGroup->motor_handle[0]->encoder.angle - 15.0f;
-//    GimbalData.Pitch_fdb = GimbalData.pitch_motorGroup->motor_handle[0]->encoder.angle + 153.0f - 360;
-//	Gimbal_SendOutput();
-	osDelay(2);
+	Gimbal.update_dt = DWT_GetDeltaT(&Gimbal.last_update_time);
+	if(Gimbal.gimbal_state != Gimbal_Off) {
+		Gimbal_SetPos();
+		Gimbal_PIDCalc();
+		Motor_SendMotorGroupOutput(gimbal_data->motorGroup);
+	}
+    osDelay(2);
   }
   /* USER CODE END Gimbal_Task */
 }
 
 void Gimbal_Init(void)
 {
-	GimbalData.yaw_motorGroup = Motor_groupHandle[4];
-	GimbalData.listen_mode  = Gimbal_OffListening;
-	GimbalData.init = 1;
-	GimbalData.pitch_motorGroup = Motor_groupHandle[5];
-	GimbalData.listen_mode  = Gimbal_OffListening;
-	GimbalData.init = 1;
+	PID_InitPIDParam(&Gimbal.Yaw_Pospidparam, Const_YawPosMotorParam[0][0], Const_YawPosMotorParam[0][1], Const_YawPosMotorParam[0][2], Const_YawPosMotorParam[0][3], Const_YawPosMotorParam[0][4],
+                    Const_YawPosMotorParam[1][0], Const_YawPosMotorParam[1][1], Const_YawPosMotorParam[2][0], Const_YawPosMotorParam[2][1],
+                    Const_YawPosMotorParam[3][0],Const_YawPosMotorParam[3][1], PID_POSITION);
+	PID_InitPIDParam(&Gimbal.Yaw_Spdpidparam, Const_YawSpdMotorParam[0][0], Const_YawSpdMotorParam[0][1], Const_YawSpdMotorParam[0][2], Const_YawSpdMotorParam[0][3], Const_YawSpdMotorParam[0][4],
+                    Const_YawSpdMotorParam[1][0], Const_YawSpdMotorParam[1][1], Const_YawSpdMotorParam[2][0], Const_YawSpdMotorParam[2][1],
+                    Const_YawSpdMotorParam[3][0],Const_YawSpdMotorParam[3][1], PID_POSITION);
+	PID_InitPIDParam(&Gimbal.Pitch_Pospidparam, Const_PitchPosMotorParam[0][0], Const_PitchPosMotorParam[0][1], Const_PitchPosMotorParam[0][2], Const_PitchPosMotorParam[0][3], Const_PitchPosMotorParam[0][4],
+                    Const_PitchPosMotorParam[1][0], Const_PitchPosMotorParam[1][1], Const_PitchPosMotorParam[2][0], Const_PitchPosMotorParam[2][1],
+                    Const_PitchPosMotorParam[3][0],Const_PitchPosMotorParam[3][1], PID_POSITION);
+	PID_InitPIDParam(&Gimbal.Pitch_Spdpidparam, Const_PitchSpdMotorParam[0][0], Const_PitchSpdMotorParam[0][1], Const_PitchSpdMotorParam[0][2], Const_PitchSpdMotorParam[0][3], Const_PitchSpdMotorParam[0][4],
+                    Const_PitchSpdMotorParam[1][0], Const_PitchSpdMotorParam[1][1], Const_PitchSpdMotorParam[2][0], Const_PitchSpdMotorParam[2][1],
+                    Const_PitchSpdMotorParam[3][0],Const_PitchSpdMotorParam[3][1], PID_POSITION);
 	
-	GimbalData.Pitch_fdb = 0.0f;
-	GimbalData.Pole_Pitch_ref = 0.0f;
-	GimbalData.Yaw_fdb = 0.0f;
-	GimbalData.Pole_Yaw_ref = 0.0f;
-}
+	Gimbal.motorGroup = Motor_groupHandle[6];
+	Gimbal.init = 1;
+	Gimbal.gimbal_state = Gimbal_Off;
+	Gimbal.Pitch_fdb = 0.0f;
+	Gimbal.Pitch_ref = 0.0f;
+	Gimbal.Yaw_fdb = 0.0f;
+	Gimbal.Yaw_ref = 0.0f;
 
+	init_average_filter();
+}
 
 void Gimbal_SetPos()
-{
-	Gimbal_DataTypeDef * gimbal = Gimbal_GetDataPtr();
-	float yaw = gimbal->Pole_Yaw_ref;
-	LimitMaxMin(yaw, 200, -200);
-	yaw = yaw + 15.0f;
-	Motor_SetMotorOutput(gimbal->yaw_motorGroup->motor_handle[0], (int32_t)(yaw*100));
+{	
+	// Let see the robot from behind, then for Gimbal,the origin state is
+	// As for Yaw, Turn Left is Positive, Turn Right is Negative
+	// As for Pitch, Turn Up is Positive, Turn Down is Negative
+	// Aim to provide better use for human
+	// we overturn the Pitch order, and keep the Yaw order
 	
-	//now_yaw = data_yaw->motorGroup->motor_handle[0]->encoder.angle + 40;
-
-	float pitch = gimbal->Pole_Pitch_ref;
-	LimitMaxMin(pitch ,35,-27)	;	//pitch > 140 && pitch < 225
+	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
+	Remote_RemoteDataTypeDef* remote = Remote_GetRemoteDataPtr();
 	
-	pitch = pitch -153 ;
-	Motor_SetMotorOutput(gimbal->pitch_motorGroup->motor_handle[0], (int32_t)(pitch*100));		
-
-		//now_pitch = data_pitch->motorGroup->motor_handle[0]->encoder.angle - 147;
+	if(gimbal_data->gimbal_state == Gimbal_remote) {
+		gimbal_data->Pitch_ref = remote->remote.ch[1] / 660.0f * 45.0f;
+		gimbal_data->Yaw_ref = remote->remote.ch[0] / 660.0f * 90.0f;
+	}
+	else if(gimbal_data->gimbal_state == Gimbal_auto) {
+		
+	}
+	Gimbal_PosLimit();
 	
-	
- }
-int jjjjjj = 0;
-void Gimbal_SendOutput() {
-	Gimbal_DataTypeDef * gimbal = Gimbal_GetDataPtr();
-	Motor_SendMotorGroupOutput(gimbal->yaw_motorGroup);
-	Motor_SendMotorGroupOutput(gimbal->pitch_motorGroup);	
-	jjjjjj ++;
 }
 
-//void Gimbal_GetPos(void)
-//{
-//	Gimbal_StateTypeDef * state_yaw = Gimbal_GetStateYawPtr();
-//	Gimbal_StateTypeDef * state_pitch = Gimbal_GetStatePitchPtr();
-//	Gimbal_DataTypeDef * data_yaw = Gimbal_GetDataYawPtr();
-//	Gimbal_DataTypeDef * data_pitch = Gimbal_GetDataPitchPtr();
-//	
-//	state_yaw->Yaw_fdb = data_yaw->motorGroup->motor_handle[0]->encoder.angle + 40;
-//    state_pitch->Pitch_fdb = data_pitch->motorGroup->motor_handle[0]->encoder.angle - 147;
-//}
-
-Gimbal_DataTypeDef* Gimbal_GetDataPtr(void)
+void Gimbal_PosLimit(void)
 {
-    return &GimbalData;
+	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
+	
+	LimitMaxMin(gimbal_data->Yaw_ref, 90, -90);
+	LimitMaxMin(gimbal_data->Pitch_ref, 45, -45);
+	
 }
 
+	
+Gimbal_TypeDef* Gimbal_GetPtr(void)
+{
+    return &Gimbal;
+}
+
+void Gimbal_StateSet(Gimbal_State state)
+{
+	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
+	
+	gimbal_data->gimbal_state = state;
+}
+
+void Gimbal_PIDCalc(void)
+{
+	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
+		
+	gimbal_data->Yaw_fdb = (gimbal_data->motorGroup->motor_handle[0]->encoder.limited_angle - Const_Gimbal_Yaw_OFFSET)  ;
+	
+	gimbal_data->Pitch_fdb = (gimbal_data->motorGroup->motor_handle[1]->encoder.consequent_angle - Const_Gimbal_Pitch_OFFSET);
+
+	PID_SetPIDRef(&gimbal_data->Yaw_Pospid, gimbal_data->Yaw_ref);
+	PID_SetPIDFdb(&gimbal_data->Yaw_Pospid, gimbal_data->Yaw_fdb);
+	PID_CalcPID(&gimbal_data->Yaw_Pospid, &gimbal_data->Yaw_Pospidparam);	
+	PID_SetPIDRef(&gimbal_data->Yaw_Spdpid, PID_GetPIDOutput(&gimbal_data->Yaw_Pospid));
+	PID_SetPIDFdb(&gimbal_data->Yaw_Spdpid, gimbal_data->motorGroup->motor_handle[0]->encoder.speed);
+	PID_CalcPID(&gimbal_data->Yaw_Spdpid, &gimbal_data->Yaw_Spdpidparam);
+	
+	PID_SetPIDRef(&gimbal_data->Pitch_Pospid, gimbal_data->Pitch_ref);
+	PID_SetPIDFdb(&gimbal_data->Pitch_Pospid, gimbal_data->Pitch_fdb);
+	PID_CalcPID(&gimbal_data->Pitch_Pospid, &gimbal_data->Pitch_Pospidparam);
+	PID_SetPIDRef(&gimbal_data->Pitch_Spdpid, PID_GetPIDOutput(&gimbal_data->Pitch_Pospid));
+	PID_SetPIDFdb(&gimbal_data->Pitch_Spdpid, gimbal_data->motorGroup->motor_handle[1]->encoder.speed);
+	PID_CalcPID(&gimbal_data->Pitch_Spdpid, &gimbal_data->Pitch_Spdpidparam);
+	
+	Motor_SetMotorOutput(gimbal_data->motorGroup->motor_handle[0],  -PID_GetPIDOutput(&gimbal_data->Yaw_Spdpid));
+
+	Motor_SetMotorOutput(gimbal_data->motorGroup->motor_handle[1],  -PID_GetPIDOutput(&gimbal_data->Pitch_Spdpid));
+}

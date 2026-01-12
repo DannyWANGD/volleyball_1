@@ -27,6 +27,10 @@ extern const  float Const_FRONT_YAW_MOTOR_INIT_OFFSET    ;
 extern const  float Const_LEFT_YAW_MOTOR_INIT_OFFSET     ;
 extern const  float Const_RIGHT_YAW_MOTOR_INIT_OFFSET    ;
 
+extern const float Const_A1_Pitch_Ang_Param[4][5];
+extern const float Const_A1_Pitch_Spd_Param[4][5];
+extern const float Const_A1_Init_Position[3];
+
 extern const float Const_LeftPosMotorParam[4][5];
 extern const float Const_LeftSpdMotorParam[4][5];
 extern const float Const_RightPosMotorParam[4][5];
@@ -90,7 +94,11 @@ extern UART_HandleTypeDef* Const_Communicate_UART_HANDLER;
 extern UART_HandleTypeDef* Const_Motor_UART_HANDLER;
 extern UART_HandleTypeDef* Const_DT35_UART_HANDLER;
 extern const float Const_Remote_REMOTE_OFFLINE_TIME;
-extern const float Const_Comm_OFFLINE_TIME;        
+extern const float Const_Comm_OFFLINE_TIME;     
+
+extern const float Const_Gimbal_Yaw_OFFSET;
+extern const float Const_Gimbal_Pitch_OFFSET;
+
 #endif
 
 #ifdef __cplusplus

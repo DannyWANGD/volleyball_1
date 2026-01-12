@@ -17,29 +17,46 @@
 #include "sys_dwt.h"
 #include "util_gpio.h"
 
-#define Const_Motor_UART_RX_LEN  18
+#define Const_Motor_UART_RX_LEN  78
    
 Motor_MotorGroupTypeDef *Motor_groupHandle[MOTOR_GROUP_NUM];
 
 Motor_MotorGroupTypeDef Motor_Pitch_Front_Motors;        // usart * 1
 Motor_MotorGroupTypeDef Motor_Pitch_Left_Motors;   
 Motor_MotorGroupTypeDef Motor_Pitch_Right_Motors; 
+
+Motor_MotorGroupTypeDef Motor_Pitch_Front_Motors_A1;        // usart * 1
+Motor_MotorGroupTypeDef Motor_Pitch_Left_Motors_A1;   
+Motor_MotorGroupTypeDef Motor_Pitch_Right_Motors_A1;
+
 Motor_MotorGroupTypeDef Motor_Yaw_Front_Motors;          // can1 * 3
 Motor_MotorGroupTypeDef Motor_Yaw_Left_Motors;
-Motor_MotorGroupTypeDef Motor_Yaw_Right_Motors;
-Motor_MotorGroupTypeDef Motor_GimbalYaw_Motors;  
-Motor_MotorGroupTypeDef Motor_GimbalPitch_Motors;     // can2 * 2
+Motor_MotorGroupTypeDef Motor_Yaw_Right_Motors; 
+Motor_MotorGroupTypeDef Motor_Gimbal_Motors;     // can2 * 2
 
 Motor_MotorTypeDef Motor_Pitch_Front_Motor;
 Motor_MotorTypeDef Motor_Pitch_Left_Motor;
 Motor_MotorTypeDef Motor_Pitch_Right_Motor;
+
+Motor_MotorTypeDef Motor_Pitch_Front_Motor_A1;
+Motor_MotorTypeDef Motor_Pitch_Left_Motor_A1;
+Motor_MotorTypeDef Motor_Pitch_Right_Motor_A1;
+
 Motor_MotorTypeDef Motor_Yaw_Front_Motor;
 Motor_MotorTypeDef Motor_Yaw_Left_Motor;
 Motor_MotorTypeDef Motor_Yaw_Right_Motor;
+
 Motor_MotorTypeDef Motor_Gimbal_YawMotor;
 Motor_MotorTypeDef Motor_Gimbal_PitchMotor;
 
 uint8_t Motor_Uart6RxData[Const_Motor_UART_RX_LEN];
+
+// Debug Paramters
+volatile uint32_t dbg_uart_callback_cnt = 0;   // UART回调执行次数
+volatile int dbg_rxdatalen = 0;                 // 接收到的数据长度
+volatile uint8_t dbg_rx_id = 0;                 // 接收到的ID (rxdata[2] & 0xf)
+volatile uint8_t dbg_rx_header0 = 0;            // 帧头字节0
+volatile uint8_t dbg_rx_header1 = 0;            // 帧头字节1
 
 /**
   * @brief      Motor encoder decoding callback function
@@ -62,9 +79,23 @@ void Motor_EncoderDecodeCallback(CAN_HandleTypeDef* phcan, UART_HandleTypeDef* h
     if (phcan == NULL && huart != NULL) {
         __HAL_DMA_DISABLE(huart->hdmarx);
         int rxdatalen = Const_Motor_UART_RX_LEN - Uart_DMACurrentDataCounter(huart->hdmarx->Instance);
+        
+        // 修复：DMA CIRCULAR模式下，收满78字节时计数器重载，rxdatalen=0
+        // 此时实际收到了78字节
+        if (rxdatalen == 0) {
+            rxdatalen = Const_Motor_UART_RX_LEN;  // 78
+        }
+        
+        // 调试：记录接收信息
+        dbg_uart_callback_cnt++;
+        dbg_rxdatalen = rxdatalen;
+        dbg_rx_header0 = Motor_Uart6RxData[0];
+        dbg_rx_header1 = Motor_Uart6RxData[1];
+        dbg_rx_id = Motor_Uart6RxData[2] & 0x0f;
+        
         for (int i = 0; i < MOTOR_GROUP_NUM; i++) {
             for (int j = 0; j < Motor_groupHandle[i]->motor_num; j++) {
-                if ((huart == Motor_groupHandle[i]->uart_handle)&& (rxdatalen == 16))  {    
+                if ((huart == Motor_groupHandle[i]->uart_handle)&& (rxdatalen == 78 || rxdatalen == 16)) { 
                    if((Motor_Uart6RxData[2]& 0xf)== Motor_groupHandle[i]->motor_handle[j]->id){							
                         Motor_groupHandle[i]->motor_handle[j]->callback(Motor_groupHandle[i]->motor_handle[j], Motor_Uart6RxData , rxdatalen);    }            
                 }
@@ -113,16 +144,38 @@ void Motor_InitAllMotors() {
 	Motor_InitMotorGroup(&Motor_Yaw_Right_Motors, Motor_TYPE_DM4340, 1, &hcan1,NULL,  0x03);
     Motor_InitMotor(&Motor_Yaw_Right_Motor,Motor_TYPE_DM4340, 0x06, 0.1,  DM4340_encoder_callback);
     Motor_Yaw_Right_Motors.motor_handle[0] = &Motor_Yaw_Right_Motor;  
-		
-//  Motor_groupHandle[6] = &Motor_GimbalYaw_Motors;
-//	Motor_InitMotorGroup(&Motor_GimbalYaw_Motors, Motor_TYPE_LK5005, 1, &hcan2, NULL, 0x141);
-//	  Motor_InitMotor(&Motor_Gimbal_YawMotor,   Motor_TYPE_LK5005, 0x141, 0.1, lk5005_encoder_callback);
-//	  Motor_GimbalYaw_Motors.motor_handle[0] = &Motor_Gimbal_YawMotor;
-//	  
-//  Motor_groupHandle[7] = &Motor_GimbalPitch_Motors;
-//	Motor_InitMotorGroup(&Motor_GimbalPitch_Motors, Motor_TYPE_LK5005, 1, &hcan2, NULL, 0x142);
-//	  Motor_InitMotor(&Motor_Gimbal_PitchMotor,   Motor_TYPE_LK5005, 0x142, 0.1, lk5005_encoder_callback);
-//	  Motor_GimbalPitch_Motors.motor_handle[0] = &Motor_Gimbal_PitchMotor;
+
+  Motor_groupHandle[6] = &Motor_Pitch_Front_Motors_A1;
+	Motor_InitMotorGroup(&Motor_Pitch_Front_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
+    Motor_InitMotor(&Motor_Pitch_Front_Motor_A1, Motor_TYPE_A1, 1, 0.1, A1_encoder_callback);
+    Motor_Pitch_Front_Motors_A1.motor_handle[0] = &Motor_Pitch_Front_Motor_A1;
+	
+//   Motor_groupHandle[7] = &Motor_Pitch_Left_Motors_A1;
+// 	Motor_InitMotorGroup(&Motor_Pitch_Left_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
+//     Motor_InitMotor(&Motor_Pitch_Left_Motor_A1, Motor_TYPE_A1, 2, 0.1, A1_encoder_callback);
+//     Motor_Pitch_Left_Motors_A1.motor_handle[0] = &Motor_Pitch_Left_Motor_A1;
+
+//   Motor_groupHandle[8] = &Motor_Pitch_Right_Motors_A1;
+// 	Motor_InitMotorGroup(&Motor_Pitch_Right_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
+//     Motor_InitMotor(&Motor_Pitch_Right_Motor_A1, Motor_TYPE_A1, 3, 0.1, A1_encoder_callback);
+//     Motor_Pitch_Right_Motors_A1.motor_handle[0] = &Motor_Pitch_Right_Motor_A1; 
+
+
+
+	Motor_groupHandle[7] = &Motor_Gimbal_Motors;
+	Motor_InitMotorGroup(&Motor_Gimbal_Motors, Motor_TYPE_Dji6020, 2, &hcan2, NULL, 0x2FE);
+	Motor_InitMotor(&Motor_Gimbal_YawMotor, Motor_TYPE_Dji6020, 0x209, 0.1, Dji6020_encoder_callback);
+	Motor_InitMotor(&Motor_Gimbal_PitchMotor, Motor_TYPE_Dji6020, 0x20A, 0.1, Dji6020_encoder_callback);
+	Motor_Gimbal_Motors.motor_handle[0] = &Motor_Gimbal_YawMotor;
+	Motor_Gimbal_Motors.motor_handle[1] = &Motor_Gimbal_PitchMotor;
+	Motor_Gimbal_Motors.motor_handle[2] = NULL;
+	Motor_Gimbal_Motors.motor_handle[3] = NULL;
+	
+	  Motor_groupHandle[8] = &Motor_Pitch_Right_Motors_A1;
+	Motor_InitMotorGroup(&Motor_Pitch_Right_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
+    Motor_InitMotor(&Motor_Pitch_Right_Motor_A1, Motor_TYPE_A1, 2, 0.1, A1_encoder_callback);
+    Motor_Pitch_Right_Motors_A1.motor_handle[0] = &Motor_Pitch_Right_Motor_A1; 
+	
 }   
 /**
   * @brief      Initialize the motor
@@ -158,7 +211,7 @@ void  Motor_InitMotorGroup(Motor_MotorGroupTypeDef* pgroup, Motor_MotorTypeEnum 
    	  pgroup->motor_num = motor_num;
       pgroup->type = type;
 	
- if (type == Motor_TYPE_DM8009 || type == Motor_TYPE_DM4310 || type == Motor_TYPE_DM4340|| type == Motor_TYPE_RM3508 || type == Motor_TYPE_LK5005 ) {
+ if (type == Motor_TYPE_DM8009 || type == Motor_TYPE_DM4310 || type == Motor_TYPE_DM4340|| type == Motor_TYPE_RM3508 || type == Motor_TYPE_LK5005 || type == Motor_TYPE_Dji6020 ) {
         if (phcan == NULL) return;
         pgroup->can_handle = phcan;
         Can_InitTxHeader(&(pgroup->can_header), stdid, 0, 8);
@@ -202,6 +255,12 @@ if (pmotor->type == Motor_TYPE_Go1) {
         ret = (int16_t)(pmotor->output / 6.33f * 256.0f);
           return (uint16_t)ret;
           }
+
+if (pmotor->type == Motor_TYPE_Dji6020) {
+			ret = (int16_t)(pmotor->output / 0.741f / 3.0f * 16384.0f);
+			return ret;
+	}
+
 return 0;
 }
 
@@ -224,7 +283,7 @@ void Motor_SendMotorGroupOutput(Motor_MotorGroupTypeDef *pgroup) {
 
     if (pgroup == NULL) return;
 
-    if (pgroup->type == Motor_TYPE_ECA4310 || pgroup->type == Motor_TYPE_RM3508 ) {
+    if (pgroup->type == Motor_TYPE_ECA4310 || pgroup->type == Motor_TYPE_RM3508 || pgroup->type == Motor_TYPE_Dji6020 ) {
         txdata[0] = (uint8_t)(Motor_GetMotorOutput(pgroup->motor_handle[0]) >> 8);
         txdata[1] = (uint8_t)Motor_GetMotorOutput(pgroup->motor_handle[0]);
         txdata[2] = (uint8_t)(Motor_GetMotorOutput(pgroup->motor_handle[1]) >> 8);
@@ -286,7 +345,11 @@ void Motor_SendMotorGroupOutput(Motor_MotorGroupTypeDef *pgroup) {
         txdata[31] = (uint8_t)(crc >> 8);
         txdata[32] = (uint8_t)(crc >> 16);
         txdata[33] = (uint8_t)(crc >> 24);
+        GPIO_Set( RS485_TX );  // 设置RS485为发送模式
         Uart_SendMessage(pgroup->uart_handle, txdata, 34, 100);
+        // 等待UART发送完成（等待TC标志）
+        while(__HAL_UART_GET_FLAG(pgroup->uart_handle, UART_FLAG_TC) == RESET);
+        GPIO_Reset( RS485_TX );  // 发送完成后切回接收模式
 
     } else if (pgroup->type == Motor_TYPE_Go1) {
 
@@ -557,13 +620,16 @@ void A1_encoder_callback(Motor_MotorTypeDef *pmotor, uint8_t rxbuff[], uint32_t 
     
     // Assign a value to the previous angle and get the latest angle
     pmotor->encoder.last_angle = pmotor->encoder.angle;
-    pmotor->encoder.angle   = (float)((int32_t)((uint32_t)rxbuff[30] | (uint32_t)rxbuff[31] << 8 | (uint32_t)rxbuff[32] << 16 | (uint32_t)rxbuff[33] << 24)) * 2.0f * 180.0f / 16384.0f / 9.1f;
-    pmotor->encoder.speed   = (float)((int16_t)((uint16_t)rxbuff[14] | (uint16_t)rxbuff[15] << 8) / 128.0f) / 9.1f;
-    pmotor->encoder.current = (float)((int16_t)((uint16_t)rxbuff[12] | (uint16_t)rxbuff[13] << 8) / 256.0f);
+		pmotor->encoder.angle   = (float)((int32_t)((uint32_t)rxbuff[30] | (uint32_t)rxbuff[31] << 8 | (uint32_t)rxbuff[32] << 16 | (uint32_t)rxbuff[33] << 24)) * 2.0f * 180.0f / 16384.0f / 9.1f;
+    // 输出轴速度
+		pmotor->encoder.speed   = (float)((int16_t)((uint16_t)rxbuff[14] | (uint16_t)rxbuff[15] << 8) / 128.0f) / 9.1f;
+    // 电机力矩，不过当成电流来考虑，A1电机力矩常数为0.87Nm/A
+		pmotor->encoder.current = (float)((int16_t)((uint16_t)rxbuff[12] | (uint16_t)rxbuff[13] << 8) / 256.0f);
     pmotor->encoder.temp    = (float)((uint32_t)rxbuff[6]);
     pmotor->encoder.limited_angle = pmotor->encoder.angle;
     pmotor->encoder.consequent_angle = pmotor->encoder.angle;
-   
+    pmotor->type = Motor_TYPE_A1;
+    pmotor->watchdog = 0;  // 清零看门狗，表示收到电机数据
 }
 extern uint64_t output_state;
 void Go1_encoder_callback(Motor_MotorTypeDef *pmotor, uint8_t rxbuff[], uint32_t len) {
@@ -733,7 +799,7 @@ void lk5005_encoder_callback(Motor_MotorTypeDef* motor, uint8_t* rxdata, uint32_
 		motor->encoder.last_angle = motor->init == 1 ? motor->encoder.angle : ((uint16_t)((uint16_t)((uint16_t)rxdata[6] | (uint16_t)rxdata[7] << 8))) * 360.0f / 32767.0f;
 		motor->encoder.last_speed = motor->encoder.speed;
 		motor->encoder.angle 	  = ((uint16_t)((uint16_t)((uint16_t)rxdata[6] | (uint16_t)rxdata[7] << 8))) * 360.0f / 32767.0f;
-		motor->encoder.speed	  = deg2rad(((int16_t)((uint16_t)((uint16_t)rxdata[4] | (uint16_t)rxdata[5] << 8))));
+		motor->encoder.speed	  = deg2rad(((int16_t)((uint16_t)rxdata[4] | (uint16_t)rxdata[5] << 8)));
 		motor->encoder.current	  = ((int16_t)((uint16_t)((uint16_t)rxdata[2] | (uint16_t)rxdata[3] << 8))) / 24.0f;
 		motor->encoder.temp		  = (int8_t)rxdata[1];
 		
@@ -741,3 +807,52 @@ void lk5005_encoder_callback(Motor_MotorTypeDef* motor, uint8_t* rxdata, uint32_
         motor->update_dt = DWT_GetDeltaT(&motor->last_update_tick);
 	}
 }
+
+void Dji6020_encoder_callback(Motor_MotorTypeDef *pmotor, uint8_t rxbuff[], uint32_t len) {
+    if (pmotor == NULL) return;
+    if (len != 8) return;
+
+    uint16_t reverse_angle = (uint16_t)((uint16_t)rxbuff[0] << 8 | (uint16_t)rxbuff[1]);
+    reverse_angle = (reverse_angle == 0) ? 0 : (8192 - reverse_angle);
+
+    pmotor->encoder.last_angle = pmotor->init == 1 ? pmotor->encoder.angle : ((float)(reverse_angle) / 8192.0f * 360.0f);
+    pmotor->encoder.angle   = (float)(reverse_angle) / 8192.0f * 360.0f;
+    pmotor->encoder.speed   = -(float)((int16_t)((uint16_t)rxbuff[2] << 8 | (uint16_t)rxbuff[3])) * 0.1047f;
+    pmotor->encoder.current = -(float)((int16_t)((uint16_t)rxbuff[4] << 8 | (uint16_t)rxbuff[5])) / 16384.0f * 3.0f;
+    pmotor->encoder.torque = pmotor->encoder.current * 0.741f;
+    pmotor->encoder.temp = (float)(rxbuff[6]); 
+    pmotor->init = 1; 
+
+    // Calculate angle difference and number of cycles
+    if ((pmotor->encoder.last_angle > 358.0f) && (pmotor->encoder.angle < 2.0f)) 
+        pmotor->encoder.round_count++;
+    else if ((pmotor->encoder.last_angle < 2.0f) && (pmotor->encoder.angle > 358.0f)) 
+        pmotor->encoder.round_count--;
+        
+    // Calculate continuous angle
+    pmotor->encoder.consequent_angle = (float)pmotor->encoder.round_count * 360.0f + (float)pmotor->encoder.angle + pmotor->encoder.init_offset;
+    float temp_limited_angle = (float)pmotor->encoder.angle - pmotor->encoder.init_offset;
+    while (temp_limited_angle < -180.0f) temp_limited_angle += 360.0f;
+    while (temp_limited_angle > 180.0f) temp_limited_angle -= 360.0f;
+    pmotor->encoder.limited_angle = temp_limited_angle;
+    
+    pmotor->type = Motor_TYPE_Dji6020;
+    pmotor->update_dt = DWT_GetDeltaT(&pmotor->last_update_tick); 
+    
+}
+
+// 在文件顶部声明
+/*volatile uint32_t uart6_idle_count = 0;
+
+void Uart_ReceiveHandler(UART_HandleTypeDef *huart) {
+    if (__HAL_UART_GET_FLAG(huart, UART_FLAG_IDLE) && __HAL_UART_GET_IT_SOURCE(huart, UART_IT_IDLE)) {
+        __HAL_UART_CLEAR_IDLEFLAG(huart);
+        
+        // 调试：统计 UART6 IDLE 中断次数
+        if (huart->Instance == USART6) {
+            uart6_idle_count++;
+        }
+        
+        Uart_RxIdleCallback(huart);
+    }
+}*/

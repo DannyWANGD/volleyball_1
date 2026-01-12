@@ -25,8 +25,10 @@
 // 返回值: uint32_t 实际处理的数据长度
 static uint32_t _set_Platform_Data_(uint8_t *buff); 
 static uint32_t _set_Platform_Data_1(uint8_t *buff); 
-//static uint32_t _set_Gimbal_Data_(uint8_t *buff); // Gimbal data receive function
+static uint32_t _set_Gimbal_Data_(uint8_t *buff);
 static uint32_t _set_Chassis_Data_(uint8_t *buff); // Chassis data receive function
+
+Filter_WindowTypeDef avg_filter;
 
 float pitch;
 float roll;
@@ -36,9 +38,10 @@ float roll;
 // CommCmd_Receive 数组中的每一个元素都是一个 Comm_ReceiveEntry 结构体
 // 该结构体包含一个函数指针 bus_func，指向具体的处理函数
 Comm_ReceiveEntry CommCmd_Receive[Const_Comm_Receive_BUFF_SIZE] = {
-  // {&_set_Platform_Data_1},
-  {&_set_Platform_Data_},
-  {&_set_Chassis_Data_}
+  	{&_set_Platform_Data_    },
+	{&_set_Gimbal_Data_      },
+	{&_set_Chassis_Data_     },
+	{&_set_Platform_Data_1  }
 };
 
 
@@ -69,24 +72,18 @@ static uint32_t _set_Platform_Data_1(uint8_t *buff){
 
 }
 
-
-
-
-
-
-
-// static uint32_t _set_Gimbal_Data_(uint8_t *buff) {
+static uint32_t _set_Gimbal_Data_(uint8_t *buff) 
+{
+	Remote_RemoteDataTypeDef *rc = Remote_GetRemoteDataPtr(); 
+	Gimbal_TypeDef *gimbal = Gimbal_GetPtr();
 	
-// 	Remote_RemoteDataTypeDef *rc = Remote_GetRemoteDataPtr(); 
-// 	Gimbal_DataTypeDef *gimbal = Gimbal_GetDataPtr();
-	
-// 	gimbal->Pole_Yaw_ref = buff2float(buff);
-// 	gimbal->Pole_Pitch_ref = buff2float(buff + 4);
+	gimbal->Yaw_ref = buff2float(buff);
+	gimbal->Pitch_ref = buff2float(buff + 4);
 
-// 	Gimbal_SetPos();
+	Gimbal_PosLimit();
 	
-// 	return 8;
-// }
+	return 8;
+}
 
 static uint32_t _set_Chassis_Data_(uint8_t *buff)
 {
@@ -111,4 +108,11 @@ static uint32_t _set_Chassis_Data_(uint8_t *buff)
     }
 	}
   return 16;        
+}
+
+void init_average_filter(void) {
+    for (int i = 0; i < MAX_LENGTH; i++) {
+        avg_filter.val[i] = 0.0f;
+    }
+    avg_filter.sum = 0.0f;
 }

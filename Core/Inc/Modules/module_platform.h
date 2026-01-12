@@ -141,6 +141,10 @@ void Platform_Set_Hit_Pose(float pitch, float roll);
  // Deprecated external interface: now internally used by Platform_Jiefa_Cal
  // Keep for reference, but do not expose externally.
  // int Platform_Update_Z_TrajWithUserSpeed(float goal_z, float dt, float v_set, float a_limit);
+
+void A1_Init(void);
+void A1_Position_Control(void);
+
 uint8_t Platform_Get_Hitting_State(void);
 void Platform_Reset_Hitting_State(void);
 #endif

@@ -53,6 +53,20 @@ Remote_RemoteControlTypeDef* Remote_GetControlDataPtr() {
     return &Remote_remoteControlData;
 }
 
+/*
+遥控器键位
+UU	平台自动接发	云台自动 	底盘自动				imu
+UM 	平台自动接发 	云台自动 	底盘自动 	给上位机发1	imu
+UD	平台自动接发 	云台自动 	底盘遥控				imu
+
+MU	平台自动垫球 模式1 	云台自动 	底盘自动				imu
+MM	平台自动垫球 模式2 	云台自动 	底盘自动 	给上位机发1	imu
+MD	平台自动垫球 模式3 	云台自动 	底盘遥控				imu
+
+DU	平台遥控 	无云台   	底盘停止
+DM	平台停止 	云台遥控 	底盘停止
+DD	全关
+*/
 
 /**
 * @brief      Remote control command
@@ -66,15 +80,15 @@ void Remote_ControlCom() {
     control_data->pending = 1;
 
     switch (data->remote.s[0]) {
-        case Remote_SWITCH_UP: {       //jiefa
+        case Remote_SWITCH_UP: {
           Remote_RemoteProcess();          
           break;
         }
         case Remote_SWITCH_MIDDLE: {
-          Remote_RemoteProcessPlus();			//chuanqiu  
+          Remote_RemoteProcessPlus();
           break;
         }
-        case Remote_SWITCH_DOWN: {    //dianqiu
+        case Remote_SWITCH_DOWN: {
           Remote_NucProcess();   
           break;
         }
@@ -93,40 +107,32 @@ void Remote_ControlCom() {
 
 void Remote_RemoteProcess() {
 	
-  Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
-  Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-	Gimbal_DataTypeDef *gimbal = Gimbal_GetDataPtr();
+	Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
+	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+	Gimbal_TypeDef *gimbal = Gimbal_GetPtr();
 	
-  switch (data->remote.s[1]) {
-		// 完全交由上位机控制
-    case Remote_SWITCH_UP: {
-      Platform_Set_ControlMode(Platform_Jiefa);	
+	switch (data->remote.s[1]) {
+		case Remote_SWITCH_UP: {
+			Platform_Set_ControlMode(Platform_Jiefa);	
 			Chassis_SetControlMode(Chassis_PC);
-      // 统一接口：直接调用 Jiefa_Cal 周期更新
-      Platform_Jiefa_Cal(1.0f);
-      // 如需设置击球姿态：先设姿态，再触发击球
-      // Platform_Set_Target_Pos(0.0f, 0.0f, Platform_GetPlatformPtr()->tar.plat_z, /*pitch*/0.0f, /*yaw*/0.0f, /*roll*/0.0f);
-      // Platform_Jiefa_Cal(1.0f);
+			Gimbal_StateSet(Gimbal_auto);
+			break;
+		}
+		case Remote_SWITCH_MIDDLE: {
+			Platform_Set_ControlMode(Platform_Jiefa);
+			Chassis_SetControlMode(Chassis_PC); 
+			Gimbal_StateSet(Gimbal_auto);  							
+			break;
+		}
+		case Remote_SWITCH_DOWN: {
+			Platform_Set_ControlMode(Platform_Jiefa);	
+			Chassis_SetControlMode(Chassis_Remote); 
+			Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
+			Gimbal_StateSet(Gimbal_auto);
 			break;
     }
-		// 完全交由遥控器控制
-    case Remote_SWITCH_MIDDLE: {
-      Platform_Set_ControlMode(Platform_Initpose);
-      Chassis_SetControlMode(Chassis_Remote); 
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f);  							
-	    // Chassis_Set_Speed( data->remote.ch[2]/660.0f * 2.0f,data->remote.ch[3]/660.0f * 2.0f,data->remote.ch[0]/660.0f * 3.0f);
-      break;
-    }
-		// 紧急制动全部停止
-    case Remote_SWITCH_DOWN: {
-	    Platform_Set_ControlMode(Platform_Jiefa);	
-			Chassis_SetControlMode(Chassis_Remote); 
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f);  							
-			//Chassis_Set_Speed(Chassis_Stop,0,0,0); 						
-      break;
-    }
     default:
-      break;
+		break;
   }
 }
 
@@ -137,72 +143,61 @@ void Remote_RemoteProcess() {
 * @retval     NULL
 */
 void Remote_RemoteProcessPlus() {
-
-  Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
-  Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-  
-  switch (data->remote.s[1]) {
-    case Remote_SWITCH_UP: {
-      Platform_Set_ControlMode(Platform_Chuanqiu);
-      // Platform_Set_Target_Pos_Smooth(0, 0,
-      //                                data->remote.ch[1] * 0.15f / 660.0f +0.08f, // Z 目标（m）
-      //                                data->remote.ch[3] * 60.0f / 660.0f,         // Pitch 目标（deg）
-      //                                0.0f,                                         // Yaw 目标（deg）
-      //                                data->remote.ch[2] * 60.0f / 660.0f);        // Roll 目标（deg）
-      Chassis_Set_Speed(Chassis_Lock, 0, 0, 0);
-      break;
+    Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+    
+    switch (data->remote.s[1]) {
+        case Remote_SWITCH_UP: {
+			Platform_Set_ControlMode(Platform_Dianqiu);	
+			Chassis_SetControlMode(Chassis_PC);   
+			Gimbal_StateSet(Gimbal_auto);
+			break;
+        }
+        case Remote_SWITCH_MIDDLE: {
+			Platform_Set_ControlMode(Platform_Dianqiu);		
+			Chassis_SetControlMode(Chassis_PC);   
+			Gimbal_StateSet(Gimbal_auto);
+			break;
+        }
+        case Remote_SWITCH_DOWN: {
+			Platform_Set_ControlMode(Platform_Dianqiu);
+			Chassis_SetControlMode(Chassis_Remote);
+			Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,-data->remote.ch[0]/660.0f * 3.0f);
+			Gimbal_StateSet(Gimbal_auto);
+			break;
+        }
+        default:
+			break;
     }
-    case Remote_SWITCH_MIDDLE: {
-      Platform_Set_ControlMode(Platform_Initpose);		
-      Chassis_SetControlMode(Chassis_Remote);   
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
-      break;
-    }
-    case Remote_SWITCH_DOWN: {
-      Platform_Set_ControlMode(Platform_Stop);
-      Chassis_SetControlMode(Chassis_Remote);
-      Chassis_Set_Speed(Chassis_Stop, 0, 0, 0);
-      Chassis_SetControlMode(Chassis_Remote);
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
-
-      Platform_Set_ControlMode(Platform_Dianqiu);
-      break;
-    }
-    default:
-      break;
-  }
 }
 
-// 遥控器控制小车和平台颠球
 void Remote_NucProcess() {
 	
-  Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr(); // 遥控器控制指针
-  Platform_DataTypeDef *Platform = Platform_GetPlatformPtr(); // 平台控制指针
+    Remote_RemoteDataTypeDef *data = Remote_GetRemoteDataPtr();
+    Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
     
-  switch (data->remote.s[1]) {
-    case Remote_SWITCH_UP: {
-			
-      //Chassis_SetControlMode(Chassis_PC);		
-      Chassis_SetControlMode(Chassis_PC);
-      // Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
-      Platform_Set_ControlMode(Platform_Jiefa);		
-      break;
+    switch (data->remote.s[1]) {
+        case Remote_SWITCH_UP: {
+	        Platform_Set_ControlMode(Platform_Jiefa);
+					Platform_Jiefa_Cal(1.0f);
+					// Platform_Set_Target_Pos(0,0,data->remote.ch[1]*0.25/660.0f+0.25f,-18.0f+data->remote.ch[2]*30.0f/660.0f,0,data->remote.ch[3]*30.0f/660.0f);
+					// Chassis_SetControlMode(Chassis_Lock);  												
+					// Gimbal_StateSet(Gimbal_Off);			
+            break;
+        }
+        case Remote_SWITCH_MIDDLE: {
+					Platform_Set_ControlMode(Platform_Jiefa);  
+					// Chassis_Set_Speed(Chassis_Stop,0,0,0);			
+					// Gimbal_StateSet(Gimbal_remote);
+            break;
+        }
+        case Remote_SWITCH_DOWN: {
+			Platform_Set_ControlMode(Platform_Stop);		
+			Chassis_Set_Speed(Chassis_Stop,0,0,0);
+			Gimbal_StateSet(Gimbal_Off);
+			break;
+        }
+        default:
+            break;
     }
-    case Remote_SWITCH_MIDDLE: {
-	 	  Chassis_SetControlMode(Chassis_Remote);  					
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 		
-      Platform_Set_ControlMode(Platform_Dianqiu);	
-		  //Platform_Set_Target_Pos(0,0,data->remote.ch[1]*0.25/660.0f+0.15f,data->remote.ch[2]*30.0f/660.0f,0,data->remote.ch[3]*30.0f/660.0f);		
-      break;
-    }
-    case Remote_SWITCH_DOWN: {     
-      //Chassis_SetControlMode(Chassis_Location);   
-		  Chassis_SetControlMode(Chassis_Remote);  
-      Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
-		  Platform_Set_ControlMode(Platform_Dianqiu);				
-      break;
-    }
-    default:
-      break;
-  }
 }

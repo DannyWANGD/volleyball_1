@@ -8,35 +8,51 @@
 
 typedef enum
 {
-    Gimbal_OffListening  = 0,
-    Gimbal_Listening     = 1
-
-} Gimbal_ListenModeEnum;
-
-
-
+	Gimbal_Off = 0,
+	Gimbal_remote = 1,
+	Gimbal_auto = 2
+} Gimbal_State;
 
 typedef struct
 {
+	Motor_MotorGroupTypeDef * motorGroup;
+
+
+    float Yaw_ref;
+    float Pitch_ref;
+	
+	float Yaw_fdb;
+    float Pitch_fdb;
+
     float Pole_Yaw_ref;
     float Pole_Pitch_ref;
 
-    float Yaw_fdb;
-    float Pitch_fdb;
+    float Pole_Yaw_fdb;
+    float Pole_Pitch_fdb;
 	
-	Motor_MotorGroupTypeDef * pitch_motorGroup;
-	Motor_MotorGroupTypeDef * yaw_motorGroup;
+	  PID_PIDTypeDef Yaw_Pospid;
+    PID_PIDParamTypeDef Yaw_Pospidparam;
+
+    PID_PIDTypeDef Pitch_Pospid;
+    PID_PIDParamTypeDef Pitch_Pospidparam;
+
+    PID_PIDTypeDef Yaw_Spdpid;
+    PID_PIDParamTypeDef Yaw_Spdpidparam;
+
+    PID_PIDTypeDef Pitch_Spdpid;
+    PID_PIDParamTypeDef Pitch_Spdpidparam;
+	
 	uint8_t init;
-    Gimbal_ListenModeEnum listen_mode;
+	Gimbal_State gimbal_state;
 	float update_dt;
 	uint32_t last_update_time;
-}Gimbal_DataTypeDef;
+}Gimbal_TypeDef;
 
 void Gimbal_Init(void);
 void Gimbal_SetPos(void);
-void Gimbal_SendOutput(void);
-Gimbal_DataTypeDef* Gimbal_GetDataPtr(void);
-
-
+void Gimbal_PosLimit(void);
+void Gimbal_PIDCalc(void);
+void Gimbal_StateSet(Gimbal_State state);
+Gimbal_TypeDef* Gimbal_GetPtr(void);
 
 #endif

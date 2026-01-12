@@ -95,6 +95,79 @@ Platform_DataTypeDef* Platform_GetPlatformPtr() {
     return &Platform_Data;
 }
 
+// --------------------------------------------------------------------
+// A1电机控制代码区间 BEGIN
+// --------------------------------------------------------------------
+
+
+static PID_PIDTypeDef A1_Pitch_Ang_PID[3];  // Front=0, Left=1, Right=2
+static PID_PIDTypeDef A1_Pitch_Spd_PID[3];
+static PID_PIDParamTypeDef A1_Ang_PIDParam;
+static PID_PIDParamTypeDef A1_Spd_PIDParam;
+
+// A1 目标角度
+static float a1_target_angle[3] = {0.0f, 0.0f, 0.0f};
+
+void A1_Init(void) {
+    // 初始化角度环 PID 参数
+    PID_InitPIDParam(&A1_Ang_PIDParam,
+        Const_A1_Pitch_Ang_Param[0][0], Const_A1_Pitch_Ang_Param[0][1], 
+        Const_A1_Pitch_Ang_Param[0][2], Const_A1_Pitch_Ang_Param[0][3], 
+        Const_A1_Pitch_Ang_Param[0][4],
+        Const_A1_Pitch_Ang_Param[1][0], Const_A1_Pitch_Ang_Param[1][1],
+        Const_A1_Pitch_Ang_Param[2][0], Const_A1_Pitch_Ang_Param[2][1],
+        Const_A1_Pitch_Ang_Param[3][0], Const_A1_Pitch_Ang_Param[3][1],
+        PID_POSITION);
+    
+    // 初始化速度环 PID 参数
+    PID_InitPIDParam(&A1_Spd_PIDParam,
+        Const_A1_Pitch_Spd_Param[0][0], Const_A1_Pitch_Spd_Param[0][1], 
+        Const_A1_Pitch_Spd_Param[0][2], Const_A1_Pitch_Spd_Param[0][3], 
+        Const_A1_Pitch_Spd_Param[0][4],
+        Const_A1_Pitch_Spd_Param[1][0], Const_A1_Pitch_Spd_Param[1][1],
+        Const_A1_Pitch_Spd_Param[2][0], Const_A1_Pitch_Spd_Param[2][1],
+        Const_A1_Pitch_Spd_Param[3][0], Const_A1_Pitch_Spd_Param[3][1],
+        PID_POSITION);
+    
+    // 设置目标位置 (从常量表读取)
+    a1_target_angle[0] = Const_A1_Init_Position[0];
+    a1_target_angle[1] = Const_A1_Init_Position[1];
+    a1_target_angle[2] = Const_A1_Init_Position[2];
+
+}
+
+float torque[3];
+void A1_Position_Control(void) {
+    
+    Motor_MotorTypeDef* motors[3] = {
+        &Motor_Pitch_Front_Motor_A1,
+        &Motor_Pitch_Left_Motor_A1,
+        &Motor_Pitch_Right_Motor_A1
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        // 角度环: 目标角度 → 目标速度
+        PID_SetPIDRef(&A1_Pitch_Ang_PID[i], a1_target_angle[i]);
+        PID_SetPIDFdb(&A1_Pitch_Ang_PID[i], motors[i]->encoder.angle);
+        PID_CalcPID(&A1_Pitch_Ang_PID[i], &A1_Ang_PIDParam);
+        
+        // 速度环: 目标速度 → 目标力矩
+        PID_SetPIDRef(&A1_Pitch_Spd_PID[i], PID_GetPIDOutput(&A1_Pitch_Ang_PID[i]));
+        PID_SetPIDFdb(&A1_Pitch_Spd_PID[i], motors[i]->encoder.speed);
+        PID_CalcPID(&A1_Pitch_Spd_PID[i], &A1_Spd_PIDParam);
+        
+        torque[i] = PID_GetPIDOutput(&A1_Pitch_Spd_PID[i]);
+        
+        // 设置电机力矩输出
+        Motor_SetMotorOutput(motors[i], torque[i]);
+    }
+}
+
+// --------------------------------------------------------------------
+// A1电机控制代码区间 END
+// --------------------------------------------------------------------
+
+
 void Platform_Init() {
 	
   	Platform_DataTypeDef *Platform = &Platform_Data;  
@@ -179,6 +252,7 @@ void Platform_Init() {
 
     Z_ApplyProfileSafe();
     Platform_Reset_OpenLoop_Boost(); // 初始化开环加速状态
+		A1_Init();
 
 
 }
@@ -216,7 +290,11 @@ void Platform_Update_Fdb() {
 	// 如果长时间未收到数据，计数值会持续累加，最终在 Platform_Check 中触发离线错误。
 	Motor_Pitch_Front_Motor.watchdog += 1; 
 	Motor_Pitch_Left_Motor.watchdog += 1; 
-	Motor_Pitch_Right_Motor.watchdog += 1; 
+	Motor_Pitch_Right_Motor.watchdog += 1;
+	
+	// A1 电机看门狗递增
+	Motor_Pitch_Front_Motor_A1.watchdog += 1;
+	Motor_Pitch_Right_Motor_A1.watchdog += 1; 
 	
 	// 计算自上次调用以来经过的精确时间，为PID的微分项（D）提供准确的时间基准
   	Platform->update_dt = DWT_GetDeltaT(&Platform->last_update_tick);
@@ -331,6 +409,8 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
   	Motor_SetMotorOutput(&Motor_Yaw_Front_Motor,torque4) ;
   	Motor_SetMotorOutput(&Motor_Yaw_Left_Motor ,torque5) ;
   	Motor_SetMotorOutput(&Motor_Yaw_Right_Motor,torque6) ;
+	
+		A1_Position_Control();
 
  }
 
@@ -960,7 +1040,7 @@ void Platform_Control() {
 void Platform_Output() {
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr(); 
         
-//while( (output_state !=1) && (DWT_GetTimeline_us()-last_output_time < 150)){}
+/*//while( (output_state !=1) && (DWT_GetTimeline_us()-last_output_time < 150)){}
     Motor_SendMotorGroupOutput(Motor_groupHandle[3]) ; 
     Motor_SendMotorGroupOutput(Motor_groupHandle[0]) ;
     // last_output_time = DWT_GetTimeline_us();
@@ -979,7 +1059,9 @@ void Platform_Output() {
 //while( (output_state !=3) && (DWT_GetTimeline_us()-last_output_time < 150)){}
     Motor_SendMotorGroupOutput(Motor_groupHandle[5]) ;
     Motor_SendMotorGroupOutput(Motor_groupHandle[2]) ;
-    // last_output_time = DWT_GetTimeline_us();
+    // last_output_time = DWT_GetTimeline_us();*/
+		
+		Motor_SendMotorGroupOutput(&Motor_Pitch_Right_Motors_A1);
     
   }
 

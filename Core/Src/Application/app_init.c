@@ -45,7 +45,7 @@ void Init_InitAll() {
 	Platform_Init();
 	Remote_RemotrControlInit();
 	Chassis_Init();
-	// Gimbal_Init();
+	Gimbal_Init();
 } 
 
 

@@ -25,6 +25,25 @@ const  float Const_DMmotor_KD_MAX  =5     ;
 const  float Const_DMmotor_T_MIN  = -30   ; 
 const  float Const_DMmotor_T_MAX   =30  ; 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// A1 电机位置环 PID 参数 (角度环 + 速度环串级)
+// 格式: {Kp, Ki, Kd, IntegralMax, OutputMax}, {滤波参数...}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+const float Const_A1_Pitch_Ang_Param[4][5] = {
+    {0.5f, 0.01f, 8.0f, 50.0f, 30.0f},  // Kp, Ki, Kd, IntMax, OutMax
+    {0.1f, -1},                          // 滤波参数
+    {0, 0},                              // 保留参数
+    {-1, -1}                             // 保留参数
+};
+
+const float Const_A1_Pitch_Spd_Param[4][5] = {
+    {0.5f, 0.01f, 0.0f, 8.0f, 9.0f},    // Kp, Ki, Kd, IntMax, OutMax (A1最大力矩约9Nm)
+    {0.1f, -1},                          // 滤波参数
+    {0, 0},                              // 保留参数
+    {-1, -1}                             // 保留参数
+};
+const float Const_A1_Init_Position[3] = {0.0f, 0.0f, 0.0f};
+
 
 const float Const_Chassis_Location_Distance_Param[4][5] = 
 {{0.04f, 0.0f, 0.0f, 1, 3}, {0.1f, -1}, {0, 0}, {-1, -1}};
@@ -61,6 +80,27 @@ const float Const_Platform_Yaw_Ang_Param[3][4][5] = {
     {{1.3f, 0.003f, 0.0f, 20.0f, 27.0f},{0.1f, -1}, {0, 0}, {-1, -1}},
 	{{1.1f, 0.002f, 0.0f, 20.0f, 27.0f},{0.1f, -1}, {0, 0}, {-1, -1}},
  };
+ 
+const float Const_YawPosMotorParam[4][5] = {
+	{1.3f, 0.1f, 0.0f, 5.0f, 17.0f},
+	{0.1f, -1}, {0, 0}, {-1, -1}	
+};
+
+
+const float Const_YawSpdMotorParam[4][5] = {
+	{0.06f, 0.005f, 0.0f, 0.5f, 1.3f},
+	{0.1f, -1}, {0, 0}, {-1, -1}	
+};
+
+const float Const_PitchPosMotorParam[4][5] = {
+	{0.7f, 0.0f, 2.0f, 150.0f, 17.0f},//0.8 0.01 0.5 5 17
+	{0.1f, -1}, {0, 0}, {-1, -1}	
+};
+
+const float Const_PitchSpdMotorParam[4][5] = {
+	{0.07f, 0.01f, 0.0f, 2.0f, 1.3f}, //0.07
+	{0.1f, -1}, {0, 0}, {-1, -1}	
+};
 
 
 const float Const_Platform_Big_Arm_Length = 0.25 ;
@@ -83,3 +123,6 @@ UART_HandleTypeDef* Const_Motor_UART_HANDLER        = &huart6;
 UART_HandleTypeDef* Const_DT35_UART_HANDLER         = &huart8;
 const float Const_Remote_REMOTE_OFFLINE_TIME        = 1.0f;
 const float Const_Comm_OFFLINE_TIME                 = 0.5f;
+
+const float Const_Gimbal_Yaw_OFFSET						= -30.0f;
+const float Const_Gimbal_Pitch_OFFSET					= 180.0f;

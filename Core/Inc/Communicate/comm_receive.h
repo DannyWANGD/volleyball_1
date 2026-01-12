@@ -18,7 +18,7 @@ extern "C" {
 
 #include "main.h"
 
-#define Const_Comm_Receive_BUFF_SIZE 2
+#define Const_Comm_Receive_BUFF_SIZE 4
 
 
 typedef struct {
@@ -28,6 +28,8 @@ typedef struct {
 } Comm_ReceiveEntry;
 
 extern Comm_ReceiveEntry CommCmd_Receive[Const_Comm_Receive_BUFF_SIZE];
+void init_average_filter(void);
+
 
 
 #endif
