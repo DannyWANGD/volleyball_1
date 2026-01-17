@@ -673,8 +673,11 @@ void A1_encoder_callback(Motor_MotorTypeDef *pmotor, uint8_t rxbuff[], uint32_t 
 
     // Assign a value to the previous angle and get the latest angle
     pmotor->encoder.last_angle       = pmotor->encoder.angle;
+    // 输出轴角度（单位：度）
 	pmotor->encoder.angle            = (float)((int32_t)((uint32_t)rxbuff[30] | (uint32_t)rxbuff[31] << 8 | (uint32_t)rxbuff[32] << 16 | (uint32_t)rxbuff[33] << 24)) * 2.0f * 180.0f / 16384.0f / 9.1f;
-    // 输出轴速度
+    // 输出轴速度（单位：与Go1保持完全一致的换算方式）
+    // Go1公式: (value / 128.0f * PI) / 6.33f
+    // A1公式: (value / 128.0f * PI) / 9.1f （只有减速比不同）
 	pmotor->encoder.speed            = (float)((int16_t)((uint16_t)rxbuff[14] | (uint16_t)rxbuff[15] << 8) / 128.0f) / 9.1f;
     // 电机力矩，不过当成电流来考虑，A1电机力矩常数为0.87Nm/A
     pmotor->encoder.current          = (float)((int16_t)((uint16_t)rxbuff[12] | (uint16_t)rxbuff[13] << 8) / 256.0f);

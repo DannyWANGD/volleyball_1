@@ -178,17 +178,14 @@ void Remote_NucProcess() {
     
     switch (data->remote.s[1]) {
         case Remote_SWITCH_UP: {
-	        Platform_Set_ControlMode(Platform_Jiefa);
-					Platform_Jiefa_Cal(1.0f);
-					// Platform_Set_Target_Pos(0,0,data->remote.ch[1]*0.25/660.0f+0.25f,-18.0f+data->remote.ch[2]*30.0f/660.0f,0,data->remote.ch[3]*30.0f/660.0f);
-					// Chassis_SetControlMode(Chassis_Lock);  												
-					// Gimbal_StateSet(Gimbal_Off);			
+            // 击球模式：执行快速上升-回落动作
+            Platform_Set_ControlMode(Platform_Jiefa);
+            Platform_Jiefa_Cal(1.0f);
             break;
         }
         case Remote_SWITCH_MIDDLE: {
-					Platform_Set_ControlMode(Platform_Jiefa);  
-					// Chassis_Set_Speed(Chassis_Stop,0,0,0);			
-					// Gimbal_StateSet(Gimbal_remote);
+            // Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+            Platform_Set_ControlMode(Platform_Jiefa);  
             break;
         }
         case Remote_SWITCH_DOWN: {

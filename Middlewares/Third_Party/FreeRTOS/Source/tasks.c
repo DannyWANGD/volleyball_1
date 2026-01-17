@@ -1160,6 +1160,7 @@ static void prvAddNewTaskToReadyList( TCB_t *pxNewTCB )
 #if ( INCLUDE_vTaskDelete == 1 )
 
 	void vTaskDelete( TaskHandle_t xTaskToDelete )
+
 	{
 	TCB_t *pxTCB;
 

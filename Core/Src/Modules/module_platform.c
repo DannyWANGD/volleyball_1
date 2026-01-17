@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
- float PLATFORM_Z_MAX = 0.28f;
+ float PLATFORM_Z_MAX = 0.30f;
 
 // 轨迹平滑控制（Z 高度）——参数与状态（简化版：统一配置 + 兼容宏）
 typedef struct {
@@ -100,68 +100,42 @@ Platform_DataTypeDef* Platform_GetPlatformPtr() {
 // --------------------------------------------------------------------
 
 
-static PID_PIDTypeDef A1_Pitch_Ang_PID[3];  // Front=0, Left=1, Right=2
-static PID_PIDTypeDef A1_Pitch_Spd_PID[3];
-static PID_PIDParamTypeDef A1_Ang_PIDParam;
-static PID_PIDParamTypeDef A1_Spd_PIDParam;
+// static PID_PIDTypeDef A1_Pitch_Ang_PID[3];  // Front=0, Left=1, Right=2
+// static PID_PIDTypeDef A1_Pitch_Spd_PID[3];
+// static PID_PIDParamTypeDef A1_Ang_PIDParam;
+// static PID_PIDParamTypeDef A1_Spd_PIDParam;
 
 // A1 目标角度
-static float a1_target_angle[3] = {0.0f, 0.0f, 0.0f};
+// static float a1_target_angle[3] = {0.0f, 0.0f, 0.0f};
 
-void A1_Init(void) {
-    // 初始化角度环 PID 参数
-    PID_InitPIDParam(&A1_Ang_PIDParam,
-        Const_A1_Pitch_Ang_Param[0][0], Const_A1_Pitch_Ang_Param[0][1], 
-        Const_A1_Pitch_Ang_Param[0][2], Const_A1_Pitch_Ang_Param[0][3], 
-        Const_A1_Pitch_Ang_Param[0][4],
-        Const_A1_Pitch_Ang_Param[1][0], Const_A1_Pitch_Ang_Param[1][1],
-        Const_A1_Pitch_Ang_Param[2][0], Const_A1_Pitch_Ang_Param[2][1],
-        Const_A1_Pitch_Ang_Param[3][0], Const_A1_Pitch_Ang_Param[3][1],
-        PID_POSITION);
+// void A1_Init(void) {
+//     // 初始化角度环 PID 参数
+//     PID_InitPIDParam(&A1_Ang_PIDParam,
+//         Const_A1_Pitch_Ang_Param[0][0], Const_A1_Pitch_Ang_Param[0][1], 
+//         Const_A1_Pitch_Ang_Param[0][2], Const_A1_Pitch_Ang_Param[0][3], 
+//         Const_A1_Pitch_Ang_Param[0][4],
+//         Const_A1_Pitch_Ang_Param[1][0], Const_A1_Pitch_Ang_Param[1][1],
+//         Const_A1_Pitch_Ang_Param[2][0], Const_A1_Pitch_Ang_Param[2][1],
+//         Const_A1_Pitch_Ang_Param[3][0], Const_A1_Pitch_Ang_Param[3][1],
+//         PID_POSITION);
     
-    // 初始化速度环 PID 参数
-    PID_InitPIDParam(&A1_Spd_PIDParam,
-        Const_A1_Pitch_Spd_Param[0][0], Const_A1_Pitch_Spd_Param[0][1], 
-        Const_A1_Pitch_Spd_Param[0][2], Const_A1_Pitch_Spd_Param[0][3], 
-        Const_A1_Pitch_Spd_Param[0][4],
-        Const_A1_Pitch_Spd_Param[1][0], Const_A1_Pitch_Spd_Param[1][1],
-        Const_A1_Pitch_Spd_Param[2][0], Const_A1_Pitch_Spd_Param[2][1],
-        Const_A1_Pitch_Spd_Param[3][0], Const_A1_Pitch_Spd_Param[3][1],
-        PID_POSITION);
+//     // 初始化速度环 PID 参数
+//     PID_InitPIDParam(&A1_Spd_PIDParam,
+//         Const_A1_Pitch_Spd_Param[0][0], Const_A1_Pitch_Spd_Param[0][1], 
+//         Const_A1_Pitch_Spd_Param[0][2], Const_A1_Pitch_Spd_Param[0][3], 
+//         Const_A1_Pitch_Spd_Param[0][4],
+//         Const_A1_Pitch_Spd_Param[1][0], Const_A1_Pitch_Spd_Param[1][1],
+//         Const_A1_Pitch_Spd_Param[2][0], Const_A1_Pitch_Spd_Param[2][1],
+//         Const_A1_Pitch_Spd_Param[3][0], Const_A1_Pitch_Spd_Param[3][1],
+//         PID_POSITION);
     
-    // 设置目标位置 (从常量表读取)
-    a1_target_angle[0] = Const_A1_Init_Position[0];
-    a1_target_angle[1] = Const_A1_Init_Position[1];
-    a1_target_angle[2] = Const_A1_Init_Position[2];
+//     // 设置目标位置 (从常量表读取)
+//     a1_target_angle[0] = Const_A1_Init_Position[0];
+//     a1_target_angle[1] = Const_A1_Init_Position[1];
+//     a1_target_angle[2] = Const_A1_Init_Position[2];
 
-}
+// }
 
-float torque[3];
-void A1_Position_Control(void) {
-    
-    Motor_MotorTypeDef* motors[3] = {
-        &Motor_Pitch_Front_Motor_A1,
-        &Motor_Pitch_Left_Motor_A1,
-        &Motor_Pitch_Right_Motor_A1
-    };
-    
-    for (int i = 0; i < 3; i++) {
-        // 角度环: 目标角度 → 目标速度
-        PID_SetPIDRef(&A1_Pitch_Ang_PID[i], a1_target_angle[i]);
-        PID_SetPIDFdb(&A1_Pitch_Ang_PID[i], motors[i]->encoder.angle);
-        PID_CalcPID(&A1_Pitch_Ang_PID[i], &A1_Ang_PIDParam);
-        
-        // 速度环: 目标速度 → 目标力矩
-        PID_SetPIDRef(&A1_Pitch_Spd_PID[i], PID_GetPIDOutput(&A1_Pitch_Ang_PID[i]));
-        PID_SetPIDFdb(&A1_Pitch_Spd_PID[i], motors[i]->encoder.speed);
-        PID_CalcPID(&A1_Pitch_Spd_PID[i], &A1_Spd_PIDParam);
-        
-        torque[i] = PID_GetPIDOutput(&A1_Pitch_Spd_PID[i]);
-        
-        // 设置电机力矩输出
-        Motor_SetMotorOutput(motors[i], torque[i]);
-    }
-}
 
 // --------------------------------------------------------------------
 // A1电机控制代码区间 END
@@ -195,10 +169,19 @@ void Platform_Init() {
 	Platform->tar.plat_roll = 0;
 
 
-	PID_InitPIDParam(&Platform->pid.Pitch_Ang_Fast_PIDParam,Const_Platform_Pitch_Ang_Param[0][0][0],Const_Platform_Pitch_Ang_Param[0][0][1],Const_Platform_Pitch_Ang_Param[0][0][2],Const_Platform_Pitch_Ang_Param[0][0][3],Const_Platform_Pitch_Ang_Param[0][0][4],
-                                                      		Const_Platform_Pitch_Ang_Param[0][1][0],Const_Platform_Pitch_Ang_Param[0][1][1],
-                                                     		Const_Platform_Pitch_Ang_Param[0][2][0],Const_Platform_Pitch_Ang_Param[0][2][1],
-                                                      		Const_Platform_Pitch_Ang_Param[0][3][0],Const_Platform_Pitch_Ang_Param[0][3][1],PID_POSITION);
+	PID_InitPIDParam(&Platform->pid.Pitch_Ang_Fast_PIDParam,
+                    Const_Platform_Pitch_Ang_Param[0][0][0], // kp
+                    Const_Platform_Pitch_Ang_Param[0][0][1], // ki
+                    Const_Platform_Pitch_Ang_Param[0][0][2], // kd
+                    Const_Platform_Pitch_Ang_Param[0][0][3], // sum_max
+                    Const_Platform_Pitch_Ang_Param[0][0][4], // output_max
+                    Const_Platform_Pitch_Ang_Param[0][1][0], // kd_fil_param
+                    Const_Platform_Pitch_Ang_Param[0][1][1], // delta_fil_param                                               		
+                    Const_Platform_Pitch_Ang_Param[0][2][0], // kf_1 静态前馈系数
+                    Const_Platform_Pitch_Ang_Param[0][2][1], // kf_2 动态前馈系数                                                   		
+                    Const_Platform_Pitch_Ang_Param[0][3][0], // kf1_fil_param
+                    Const_Platform_Pitch_Ang_Param[0][3][1], // kf2_fil_param
+                    PID_POSITION);
   	PID_InitPIDParam(&Platform->pid.Pitch_Spd_Fast_PIDParam,Const_Platform_Pitch_Spd_Param[0][0][0],Const_Platform_Pitch_Spd_Param[0][0][1],Const_Platform_Pitch_Spd_Param[0][0][2],Const_Platform_Pitch_Spd_Param[0][0][3],Const_Platform_Pitch_Spd_Param[0][0][4],
                                                      		Const_Platform_Pitch_Spd_Param[0][1][0],Const_Platform_Pitch_Spd_Param[0][1][1],
                                                      		Const_Platform_Pitch_Spd_Param[0][2][0],Const_Platform_Pitch_Spd_Param[0][2][1],
@@ -252,7 +235,7 @@ void Platform_Init() {
 
     Z_ApplyProfileSafe();
     Platform_Reset_OpenLoop_Boost(); // 初始化开环加速状态
-    A1_Init();
+    // A1_Init();
 }
 
 uint16_t watchdog2;
@@ -260,7 +243,7 @@ uint16_t watchdog2;
 float start_hit_time = 0.0f;
 float start_back_time = 0.0f;
 uint8_t finishhit = 1; //击球动作的状态标志，0为击球中，1为击打已完成
-float l_tar = 0.12f; //目标高度初始化为初始高度
+float l_tar = 0.08; //目标高度初始化为初始高度
 
 
 // 新增：击球位姿控制相关变量
@@ -276,19 +259,24 @@ void Platform_Update_Fdb() {
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 	
 	// 进行坐标系标定，处理零点偏移量
-	Platform->fdb.front_pitch_angle = 29.1f-Motor_Pitch_Front_Motor.encoder.angle;
-	Platform->fdb.left_pitch_angle  = 23.2f-Motor_Pitch_Left_Motor.encoder.angle;
-  	Platform->fdb.right_pitch_angle = Motor_Pitch_Right_Motor.encoder.angle-48.5f;
-  	Platform->fdb.front_yaw_angle   = Motor_Yaw_Front_Motor.encoder.angle ;
-  	Platform->fdb.left_yaw_angle    = Motor_Yaw_Left_Motor.encoder.angle ;
-  	Platform->fdb.right_yaw_angle   = Motor_Yaw_Right_Motor.encoder.angle+360.0f ;
+	// Platform->fdb.front_pitch_angle = 29.1f-Motor_Pitch_Front_Motor.encoder.angle;
+	// Platform->fdb.left_pitch_angle  = 23.2f-Motor_Pitch_Left_Motor.encoder.angle;
+  	// Platform->fdb.right_pitch_angle = Motor_Pitch_Right_Motor.encoder.angle-48.5f;
+  	// Platform->fdb.front_yaw_angle   = Motor_Yaw_Front_Motor.encoder.angle ;
+  	// Platform->fdb.left_yaw_angle    = Motor_Yaw_Left_Motor.encoder.angle ;
+  	// Platform->fdb.right_yaw_angle   = Motor_Yaw_Right_Motor.encoder.angle+360.0f ;
+
+    // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
+    Platform->fdb.front_pitch_angle = 0.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
+	Platform->fdb.left_pitch_angle  = 0.0f-Motor_Pitch_Left_Motor_A1.encoder.angle;
+  	Platform->fdb.right_pitch_angle = 0.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
 
 	// 递增看门狗计数器。
 	// 在其他地方（通常是CAN接收中断中），当收到对应电机的数据时，这个计数器会被清零。
 	// 如果长时间未收到数据，计数值会持续累加，最终在 Platform_Check 中触发离线错误。
-	Motor_Pitch_Front_Motor.watchdog += 1; 
-	Motor_Pitch_Left_Motor.watchdog += 1; 
-	Motor_Pitch_Right_Motor.watchdog += 1;
+	// Motor_Pitch_Front_Motor.watchdog += 1; 
+	// Motor_Pitch_Left_Motor.watchdog += 1; 
+	// Motor_Pitch_Right_Motor.watchdog += 1;
 	
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
@@ -307,13 +295,13 @@ void Platform_Update_Fdb() {
 void Platform_Check() {
 	
 	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-	if(Motor_Pitch_Front_Motor.watchdog>20)
+	if(Motor_Pitch_Front_Motor_A1.watchdog>20)
 		{Platform->error_code = 1;}
-		if(Motor_Pitch_Left_Motor.watchdog>20)
+		if(Motor_Pitch_Left_Motor_A1.watchdog>20)
 			{Platform->error_code = 2;}	
-		if(Motor_Pitch_Right_Motor.watchdog>20)
+		if(Motor_Pitch_Right_Motor_A1.watchdog>20)
 			{Platform->error_code = 3;}		
-		if(fabsf(Motor_Pitch_Left_Motor.encoder.torque + Motor_Pitch_Right_Motor.encoder.torque)>20.0f)
+		if(fabsf(Motor_Pitch_Left_Motor_A1.encoder.torque + Motor_Pitch_Right_Motor_A1.encoder.torque)>20.0f)
 		{watchdog2++;}
 		else{watchdog2=0;}
 	if(watchdog2>20){
@@ -329,8 +317,8 @@ void Platform_Check() {
 
 // 底层力矩输出接口
 // 可调输出力矩上限（提升加速度能力，谨慎调高）
-#define PITCH_TORQUE_LIMIT   27.0f
-#define YAW_TORQUE_LIMIT     27.0f
+#define PITCH_TORQUE_LIMIT   24.0f
+#define YAW_TORQUE_LIMIT     24.0f
 
 /**
  * @brief      开环加速模式：直接输出最大扭矩（绕过PID）
@@ -342,13 +330,16 @@ void Platform_OpenLoop_Boost_Output(int8_t direction) {
     float boost_torque = boost_cfg.max_torque * direction;
     // Pitch电机全力输出（考虑电机安装方向）
     // 根据坐标系：front和left是负向，right是正向
-    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor, -boost_torque - 1.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor,  -boost_torque - 1.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor,  boost_torque + 1.5f);
+    // Motor_SetMotorOutput(&Motor_Pitch_Front_Motor, -boost_torque - 1.5f);
+    // Motor_SetMotorOutput(&Motor_Pitch_Left_Motor,  -boost_torque - 1.5f);
+    // Motor_SetMotorOutput(&Motor_Pitch_Right_Motor,  boost_torque + 1.5f);
     // Yaw电机保持位置（小扭矩）
-    Motor_SetMotorOutput(&Motor_Yaw_Front_Motor, 0.0f);
-    Motor_SetMotorOutput(&Motor_Yaw_Left_Motor,  0.5f);
-    Motor_SetMotorOutput(&Motor_Yaw_Right_Motor, -0.5f);
+    // Motor_SetMotorOutput(&Motor_Yaw_Front_Motor, 0.0f);
+    // Motor_SetMotorOutput(&Motor_Yaw_Left_Motor,  0.5f);
+    // Motor_SetMotorOutput(&Motor_Yaw_Right_Motor, -0.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, -boost_torque - 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  -boost_torque - 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, -boost_torque - 1.5f);
 }
 
 /**
@@ -401,20 +392,36 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
     LimitMaxMin(torque6,YAW_TORQUE_LIMIT,-YAW_TORQUE_LIMIT);
 	
 	// 将力矩值写入电机对象的数据结构中，等待 Platform_Output 函数将其发送出去。
-  	Motor_SetMotorOutput(&Motor_Pitch_Front_Motor,torque1) ;  
-	Motor_SetMotorOutput(&Motor_Pitch_Left_Motor ,torque2) ; 
-	Motor_SetMotorOutput(&Motor_Pitch_Right_Motor,torque3) ; 
-	 
-  	Motor_SetMotorOutput(&Motor_Yaw_Front_Motor,torque4) ;
-  	Motor_SetMotorOutput(&Motor_Yaw_Left_Motor ,torque5) ;
-  	Motor_SetMotorOutput(&Motor_Yaw_Right_Motor,torque6) ;
+	// ======== A1 电机版本 ========
+  	Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, torque1);
+	Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1, torque2);
+	Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, torque3);
 	
-    A1_Position_Control();
+	// ======== Go1 原版（已注释）========
+  	// Motor_SetMotorOutput(&Motor_Pitch_Front_Motor,torque1) ;  
+	// Motor_SetMotorOutput(&Motor_Pitch_Left_Motor ,torque2) ; 
+	// Motor_SetMotorOutput(&Motor_Pitch_Right_Motor,torque3) ; 
+	 
+  	// Motor_SetMotorOutput(&Motor_Yaw_Front_Motor,torque4) ;
+  	// Motor_SetMotorOutput(&Motor_Yaw_Left_Motor ,torque5) ;
+  	// Motor_SetMotorOutput(&Motor_Yaw_Right_Motor,torque6) ;
 
  }
 
 // 实现位置-速度串级双环 PID 控制器，是整个闭环控制的核心算法
 // 内部消除重复：使用宏封装串级计算，保持接口与行为不变
+/*
+- ANG_PID：角度环 PID 控制器对象
+- SPD_PID：速度环 PID 控制器对象
+- ANG_PARAM：角度环 PID 参数对象
+- SPD_PARAM：速度环 PID 参数对象
+- SETPOINT：目标角度（位置设定值）
+- FDB_ANG：实际角度反馈值
+- ENC_SPD：实际速度反馈值
+- SIGN：速度反馈符号（根据电机安装方向调整）
+- BIAS：输出力矩偏置（用于克服重力等静态负载）
+- OUT_TORQUE：输出力矩变量（结果存储位置）
+*/
 #define CASCADE_PITCH(ANG_PID, SPD_PID, ANG_PARAM, SPD_PARAM, SETPOINT, FDB_ANG, ENC_SPD, SIGN, BIAS, OUT_TORQUE) \
   do { \
     PID_SetPIDRef(&(ANG_PID), (SETPOINT)); \
@@ -426,19 +433,7 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
     (OUT_TORQUE) = (SIGN) * PID_GetPIDOutput(&(SPD_PID)) + (BIAS); \
   } while (0)
 
-#define CASCADE_YAW(ANG_PID, SPD_PID, ANG_PARAM, SPD_PARAM, SETPOINT, FDB_ANG, ENC_SPD, BIAS, OUT_TORQUE) \
-  do { \
-    PID_SetPIDRef(&(ANG_PID), (SETPOINT)); \
-    PID_SetPIDFdb(&(ANG_PID), (FDB_ANG)); \
-    PID_CalcPID(&(ANG_PID), &(ANG_PARAM)); \
-    PID_SetPIDRef(&(SPD_PID), PID_GetPIDOutput(&(ANG_PID))); \
-    PID_SetPIDFdb(&(SPD_PID), (ENC_SPD)); \
-    PID_CalcPID(&(SPD_PID), &(SPD_PARAM)); \
-    (OUT_TORQUE) = PID_GetPIDOutput(&(SPD_PID)) + (BIAS); \
-  } while (0)
-
 float torque1,torque2,torque3,torque4,torque5,torque6;
-
 void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,float ang5,float ang6) {
 	
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
@@ -449,61 +444,103 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 	LimitMaxMin(ang4,30.0f,-30.0f);
 	LimitMaxMin(ang5,150.0f,90.0f);
 	LimitMaxMin(ang6,270.0f,210.0f);
-  
+
+  // ======== A1 电机：使用原始 CASCADE_PITCH 宏结构 ========
+  // 直接用 A1 电机替代 Go1 电机，保持完全相同的控制逻辑
   switch (Platform->output_state) {
     case Platform_slow:
+      // Go1原版：CASCADE_PITCH(..., Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.5f, torque2);
+      // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
-
-      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
-                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
-      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
-                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
-      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
-                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
       break;
 
     case Platform_middle:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.5f, torque2);
+      // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
-
-      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
-                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
-      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
-                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
-      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
-                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
       break;
 
     case Platform_fast:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, 0.0f, torque2);
+      // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
-
-      CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
-                  ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
-      CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
-                  ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
-      CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
-                  ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
       break;
 
     default:
       break;
   }
-	// 将前面计算出的三个力矩值 torque1, torque2, torque3 发送给底层的电机驱动器，驱动器再将这些数值转换成对应的电流，施加到电机上，从而驱动平台运动。
-  	Platform_Set_Torque_Output(torque1,torque2,torque3,torque4,torque5,torque6);
+  Platform_Set_Torque_Output(torque1, torque2, torque3, 0.0f, 0.0f, 0.0f);
+
+  // ======== Go1 原版代码（已注释）========
+//   switch (Platform->output_state) {
+//     case Platform_slow:
+//       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+//                     ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+//       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+//                     ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+//       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
+//                     ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
+
+//       CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+//                   ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+//       CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+//                   ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+//       CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Slow_PIDParam, Platform->pid.Yaw_Spd_Slow_PIDParam,
+//                   ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+//       break;
+
+//     case Platform_middle:
+//       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+//                     ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+//       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+//                     ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+//       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
+//                     ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
+
+//       CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+//                   ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+//       CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+//                   ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+//       CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Middle_PIDParam, Platform->pid.Yaw_Spd_Middle_PIDParam,
+//                   ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+//       break;
+
+//     case Platform_fast:
+//       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+//                     ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
+//       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+//                     ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor.encoder.speed, -1.0f, -1.5f, torque2);
+//       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
+//                     ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor.encoder.speed, 1.0f, 1.5f, torque3);
+
+//       CASCADE_YAW(Platform->pid.Yaw1_Ang_PID, Platform->pid.Yaw1_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+//                   ang4, Platform->fdb.front_yaw_angle, Motor_Yaw_Front_Motor.encoder.speed, 0.0f, torque4);
+//       CASCADE_YAW(Platform->pid.Yaw2_Ang_PID, Platform->pid.Yaw2_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+//                   ang5, Platform->fdb.left_yaw_angle, Motor_Yaw_Left_Motor.encoder.speed, 0.5f, torque5);
+//       CASCADE_YAW(Platform->pid.Yaw3_Ang_PID, Platform->pid.Yaw3_Spd_PID, Platform->pid.Yaw_Ang_Fast_PIDParam, Platform->pid.Yaw_Spd_Fast_PIDParam,
+//                   ang6, Platform->fdb.right_yaw_angle, Motor_Yaw_Right_Motor.encoder.speed, -0.5f, torque6);
+//       break;
+
+//     default:
+//       break;
+//   }
+//   // 将力矩值发送给 Go1 电机
+//   Motor_SetMotorOutput(&Motor_Pitch_Front_Motor, torque1);
+//   Motor_SetMotorOutput(&Motor_Pitch_Left_Motor, torque2);
+//   Motor_SetMotorOutput(&Motor_Pitch_Right_Motor, torque3);
 
  }
 
@@ -559,7 +596,7 @@ void Platform_Cal_3Degree_IK_Output() {
            - acosf((powf(z * sin_ro - (sqrtf(3) * R) / 2 +(sqrtf(3) * r *cos_ro) / 2, 2) + powf(R / 2 - (r *cos_pi) / 2 + z *cos_ro *sin_pi -(sqrtf(3) * r *sin_pi * sin_ro) / 2, 2) +powf((r *sin_pi) / 2 + z *cos_pi *cos_ro -(sqrtf(3) * r *cos_pi * sin_ro) / 2, 2) +L * L - l * l) /(2 * L * sqrtf(powf(z * sin_ro - (sqrtf(3) * R) / 2 +(sqrtf(3) * r *cos_ro) / 2, 2) +powf(R / 2 - (r *cos_pi) / 2 + z *cos_ro *sin_pi -(sqrtf(3) * r *sin_pi * sin_ro) / 2, 2) +powf((r *sin_pi) / 2 + z *cos_pi *cos_ro -(sqrtf(3) * r *cos_pi * sin_ro) / 2, 2))));
 	
 	// 解算出的角度会直接赋给 Platform_Set_Angle_Output() 函数并启动闭环控制
-  	Platform_Set_Angle_Output(rad2deg(theta1),rad2deg(theta2),rad2deg(theta3),0,120,240);
+  	Platform_Set_Angle_Output(-rad2deg(theta1),-rad2deg(theta2),-rad2deg(theta3),0,120,240);
 
 }
 
@@ -690,17 +727,10 @@ static inline int Traj_Update(float goal, float dt, float v_set, float a_limit,
 // 为遥控模式提供角度/高度的速度-加速度受限平滑控制，降低噪音与卡顿
 // 速度/加速度上限（可根据机械能力调整）
 // 提升响应：在安全前提下增大速度/加速度上限
-#define REMOTE_Z_V_MAX      1.20f   // m/s   (原 0.80)
-#define REMOTE_Z_A_MAX      6.00f   // m/s^2 (原 3.00)
 #define REMOTE_PITCH_V_MAX  360.0f  // deg/s (原 120.0)
 #define REMOTE_PITCH_A_MAX  900.0f  // deg/s^2 (原 600.0)
 #define REMOTE_ROLL_V_MAX   240.0f  // deg/s (原 180.0)
 #define REMOTE_ROLL_A_MAX   1100.0f // deg/s^2 (原 800.0)
-#define REMOTE_YAW_V_MAX    200.0f  // deg/s (原 150.0)
-#define REMOTE_YAW_A_MAX    900.0f  // deg/s^2 (原 600.0)
-
-// 角度平滑更新：与 Z 的用户速度版同思路，支持任意角度（度）
-// removed: use Traj_Update directly
 
 // 遥控角度轨迹速度状态
 static float pitch_traj_v = 0.0f;
@@ -888,7 +918,7 @@ void Platform_Jiefa_Cal(float hit) {
                 hit_state = STATE_RISING;
             } else {
                 Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                Platform_Set_OutputState(Platform_middle);
+                Platform_Set_OutputState(Platform_slow);
             }
         } else {
             if (trigger && cooldown_elapsed >= 2.0f) {
@@ -902,7 +932,7 @@ void Platform_Jiefa_Cal(float hit) {
                 hit_state = STATE_RISING;
             } else {
                 Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                Platform_Set_OutputState(Platform_middle);
+                Platform_Set_OutputState(Platform_slow);
                 hit_state = STATE_IDLE;
             }
         }
@@ -993,14 +1023,14 @@ void Platform_Control() {
       		break;
 		case Platform_Jiefa:
 
-            // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
-            // -----------------------------------------------------------------------------
-            // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
-            if (boost_cfg.enabled && boost_cfg.in_openloop) {
-                Platform_OpenLoop_Boost_Output(1);
-                break;
-            }
-            // ----------------------------------------------------------------------------
+            // // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
+            // // -----------------------------------------------------------------------------
+            // // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
+            // if (boost_cfg.enabled && boost_cfg.in_openloop) {
+            //     Platform_OpenLoop_Boost_Output(1);
+            //     break;
+            // }
+            // // ----------------------------------------------------------------------------
             
             Platform_Cal_3Degree_IK_Output();
 			break;				
@@ -1019,7 +1049,10 @@ void Platform_Control() {
 			break;
 		case Platform_Stop:
 			Platform_Set_OutputState(Platform_stop);
-			Platform_Set_Torque_Output(0,0,0,0,0,0);
+			// 直接将 A1 电机力矩设为 0（不通过 PID）
+			Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, 0.0f);
+			Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1, 0.0f);
+			Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, 0.0f);
 			break;				
 		default:
 			break;
@@ -1030,7 +1063,7 @@ void Platform_Control() {
 // A1电机RS485通信时序：发送34字节命令 + 等待电机处理 + 接收78字节反馈
 // 按4.5Mbps波特率：发送约76us，接收约173us，加上电机处理时间，建议间隔>=500us
 #ifndef PLATFORM_A1_OUTPUT_GAP_US
-#define PLATFORM_A1_OUTPUT_GAP_US 800U  // A1电机发送间隔，需要等待反馈完成
+#define PLATFORM_A1_OUTPUT_GAP_US 560U  // A1电机发送间隔，需要等待反馈完成
 #endif
 
 // 为三个电机发送数据
@@ -1062,10 +1095,11 @@ void Platform_Output() {
     // RS485是半双工，发送期间无法接收，需要等待反馈数据完整接收后再发下一个
     Motor_SendMotorGroupOutput(&Motor_Pitch_Front_Motors_A1);
     DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Front电机反馈
-    Motor_SendMotorGroupOutput(&Motor_Pitch_Left_Motors_A1);
-    DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Left电机反馈
     Motor_SendMotorGroupOutput(&Motor_Pitch_Right_Motors_A1);
     DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Right电机反馈
+    Motor_SendMotorGroupOutput(&Motor_Pitch_Left_Motors_A1);
+    DWT_Delayus(PLATFORM_A1_OUTPUT_GAP_US);  // 等待Left电机反馈
+
 
     
   }
