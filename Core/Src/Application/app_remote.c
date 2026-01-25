@@ -185,7 +185,7 @@ void Remote_NucProcess() {
         }
         case Remote_SWITCH_MIDDLE: {
             // Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-            Platform_Set_ControlMode(Platform_Jiefa);  
+            Platform_Set_ControlMode(Platform_Initpose);  
             break;
         }
         case Remote_SWITCH_DOWN: {

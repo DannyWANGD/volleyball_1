@@ -194,12 +194,12 @@ void Motor_InitAllMotors() {
 
     Motor_groupHandle[6] = &Motor_Pitch_Front_Motors_A1;
 	Motor_InitMotorGroup(&Motor_Pitch_Front_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
-    Motor_InitMotor(&Motor_Pitch_Front_Motor_A1, Motor_TYPE_A1, 0, 0.1, A1_encoder_callback);
+    Motor_InitMotor(&Motor_Pitch_Front_Motor_A1, Motor_TYPE_A1, 1, 0.1, A1_encoder_callback);
     Motor_Pitch_Front_Motors_A1.motor_handle[0] = &Motor_Pitch_Front_Motor_A1;
     
     Motor_groupHandle[7] = &Motor_Pitch_Left_Motors_A1;
 	Motor_InitMotorGroup(&Motor_Pitch_Left_Motors_A1, Motor_TYPE_A1, 1, NULL, &huart6, 0);
-    Motor_InitMotor(&Motor_Pitch_Left_Motor_A1, Motor_TYPE_A1, 1, 0.1, A1_encoder_callback);
+    Motor_InitMotor(&Motor_Pitch_Left_Motor_A1, Motor_TYPE_A1, 0, 0.1, A1_encoder_callback);
     Motor_Pitch_Left_Motors_A1.motor_handle[0] = &Motor_Pitch_Left_Motor_A1;
 
     Motor_groupHandle[8] = &Motor_Pitch_Right_Motors_A1;
