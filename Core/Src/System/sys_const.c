@@ -50,7 +50,7 @@ const float Const_Chassis_Location_Anglew_Param[4][5] =
 ////////////////////////////////////////////////////////////////////////////////////////////////////			
 const float Const_Platform_Pitch_Ang_Param[3][4][5] = {    
   { // Platform——fast
-	{4.0f, 0.0f, 14.0f, 120.0f, 40.0f}, // Kp,Ki,Kd,sum_max,output_max
+	{1.2f, 0.0f, 18.0f, 120.0f, 10.0f}, // Kp,Ki,Kd,sum_max,output_max
   	{0.1f, -1}, // d_fil_param D项滤波系数，delta_fil 增量式滤波系数（未使用）
 	{0, 0.1}, // kf_1 静态前馈系数(直接大致跟随目标值)，kf_2 动态前馈系数（目标值快速变化的时候提供额外的“加速力”）
 	{-1, -1} // kf1_fil 静态前馈滤波系数，kf2_fil 动态前馈滤波系数
@@ -109,7 +109,7 @@ const float Const_PitchSpdMotorParam[4][5] = {
 const float Const_Platform_Big_Arm_Length = 0.23 ;
 const float Const_Platform_Small_Arm_Length = 0.21 ;
 const float Const_Platform_Static_Plat_Radius = 0.07 ;
-const float Const_Platform_Dynamic_Plat_Radius = 0.20 ;
+const float Const_Platform_Dynamic_Plat_Radius = 0.25 ;
 
 
 

@@ -49,8 +49,8 @@ typedef struct {
 
 static OpenLoopBoostConfig boost_cfg = {
     .enabled         = 1,       // 默认启用
-    .pid_switch_dist = 0.15f,   // 距顶点5cm时切换到PID减速
-    .max_torque      = 30.0f,   // 最大扭矩
+    .pid_switch_dist = 0.10f,   // 距顶点5cm时切换到PID减速
+    .max_torque      = 20.0f,   // 最大扭矩
     .in_openloop     = 0
 };
 
@@ -266,9 +266,9 @@ void Platform_Check() {
  */
 void Platform_OpenLoop_Boost_Output(int8_t direction) {
     float boost_torque = boost_cfg.max_torque * direction;
-    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, boost_torque + 2.0f);
-    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  boost_torque + 1.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, boost_torque + 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, boost_torque);
+    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  boost_torque + 0.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, boost_torque + 0.5f);
 }
 
 float dist_to_top;
@@ -394,17 +394,73 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 
     case Platform_fast:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -3.0f, torque1);
+                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.0f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -3.0f, torque2);
+                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.0f, torque2);
       // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -3.0f, torque3);
+                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.0f, torque3);
       break;
 
     default:
       break;
   }
+
+  // ------------------------------------------------------------------------------------------------
+  // [Algorithm Added] 击球阻力补偿算法 (仅在上升阶段 STATE_RISING 生效)
+  // ------------------------------------------------------------------------------------------------
+  // 静态变量保存上一帧速度，用于计算加速度
+  static float last_spd_A1[3] = {0.0f, 0.0f, 0.0f};
+
+  // 仅在上升状态下检测阻力 (Returning 和 Cooldown 不处理)
+  if (hit_state == STATE_RISING) {
+      float dt = Platform->update_dt;
+      // 防止 dt 异常或过小导致微分噪声
+      if (dt > 0.0001f && dt < 0.1f) {
+          // === 参数配置区 (建议根据实测波形调整) ===
+          const float ACC_TRIGGER_THRESHOLD = -1000.0f; // 触发阈值: 减速度超过此值 (rad/s^2)
+          const float IMPACT_GAIN = 0.015f;             // 增益: 每 1 unit 减速度补偿的力矩 (Nm)
+          const float MAX_EXTRA_TORQUE = 5.0f;        // 补偿限幅: 最大允许额外增加的力矩 (Nm)
+          // ======================================
+
+          float current_spd[3];
+          float *torques[3] = {&torque1, &torque2, &torque3}; // 指向待输出力矩的指针
+          
+          // 获取当前电机速度
+          current_spd[0] = Motor_Pitch_Front_Motor_A1.encoder.speed;
+          current_spd[1] = Motor_Pitch_Left_Motor_A1.encoder.speed;
+          current_spd[2] = Motor_Pitch_Right_Motor_A1.encoder.speed;
+
+          for(int i=0; i<3; i++) {
+              // 1. 计算实时加速度 (rad/s^2)
+              float acc = (current_spd[i] - last_spd_A1[i]) / dt;
+
+              // 2. 触发条件判断
+              // 条件A: 电机正在正向运动 (假设上升对应速度 > 0)。如果您的电机上升是反转，请改为 current_spd[i] < -1.0f
+              // 条件B: 加速度为较大的负值 (说明受阻剧烈减速)
+              if (current_spd[i] > 8.0f && acc < ACC_TRIGGER_THRESHOLD) {
+                   // 3. 线性计算补偿值: (ACC - 阈值) 是负数，取反后乘以增益
+                   float boost = -(acc - ACC_TRIGGER_THRESHOLD) * IMPACT_GAIN;
+                   
+                   // 4. 安全限幅
+                   if (boost > MAX_EXTRA_TORQUE) boost = MAX_EXTRA_TORQUE;
+                   if (boost < 0.0f) boost = 0.0f; // 不反向补偿
+
+                   // 5. 叠加到最终输出 (torque1/2/3)
+                   *(torques[i]) += boost;
+              }
+              // 更新历史值
+              last_spd_A1[i] = current_spd[i];
+          }
+      }
+  } else {
+      // 非上升阶段：持续更新历史速度，保证状态切换瞬间加速度计算正确
+      last_spd_A1[0] = Motor_Pitch_Front_Motor_A1.encoder.speed;
+      last_spd_A1[1] = Motor_Pitch_Left_Motor_A1.encoder.speed;
+      last_spd_A1[2] = Motor_Pitch_Right_Motor_A1.encoder.speed;
+  }
+  // ------------------------------------------------------------------------------------------------
+
   Platform_Set_Torque_Output(torque1, torque2, torque3, 0.0f, 0.0f, 0.0f);
 
   // ======== Go1 原版代码（已注释）========
@@ -553,9 +609,9 @@ static inline void Z_ApplyProfileSafe(void) {
 // 保留速度状态和目标
 static float l_traj_v              = 0.0f;        // 高度 z 方向的速度状态
 static float l_traj_z              = 0.08f;       // 高度 z 方向的位置状态
-static float hit_pitch_goal      = 15.0f;        // 击球时的目标 pitch 角度
+static float hit_pitch_goal      = 10.0f;        // 击球时的目标 pitch 角度
 static float hit_roll_goal       = 0.0f;        // 击球时的目标 roll 角度
-static const float z_near_zero   = 0.001f;      // 认为高度 z 值收敛的阈值
+static const float z_near_zero   = 0.02f;      // 认为高度 z 值收敛的阈值
 static const float v_near_zero   = 0.01f;       // 认为速度 v 收敛的阈值（m/s）
 static const float ang_near_zero = 3.0f;        // 认为角度 ang 收敛的阈值（度）
 static const float w_near_zero   = 3.0f;        // 认为角速度 w 收敛的阈值（度/s）
@@ -705,20 +761,20 @@ void Platform_Jiefa_Cal(float hit) {
             // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
             // -----------------------------------------------------------------------------
             // ===== 开环加速检测：距顶点较远时直接输出最大扭矩 =====
-            // if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
-            //     // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
-            //     l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
-            //     l_traj_v += z_profile.a_up_max * dt; // 估算速度
-            //     // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
-            //     //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
-            //     // }
-            //     // 角度仍按平滑推进
-            //     AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
-            //                       REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-            //                       REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
-            //     WriteTargetFromState();
-            //     return; // 直接返回，不执行后续PID控制
-            // }
+            if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
+                // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
+                l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
+                l_traj_v += z_profile.a_up_max * dt; // 估算速度
+                // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
+                //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
+                // }
+                // 角度仍按平滑推进
+                AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
+                                  REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+                                  REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
+                WriteTargetFromState();
+                return; // 直接返回，不执行后续PID控制
+            }
             // ===== 接近顶点：使用PID减速控制 =====
             // -----------------------------------------------------------------------------
 
@@ -742,7 +798,7 @@ void Platform_Jiefa_Cal(float hit) {
             }
     } else if (hit_state == STATE_RETURNING) {
             Platform_Reset_OpenLoop_Boost(); // 重置开环加速状态
-            Platform_Set_OutputState(Platform_middle);
+            Platform_Set_OutputState(Platform_slow);
 
             // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
             (void)Traj_Update(Initial_Z_Position, dt, v_set_down, a_limit_dn,
@@ -886,10 +942,10 @@ void Platform_Control() {
             // // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
             // // -----------------------------------------------------------------------------
             // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
-            // if (boost_cfg.enabled && boost_cfg.in_openloop) {
-            //     Platform_OpenLoop_Boost_Output(1);
-            //     break;
-            // }
+            if (boost_cfg.enabled && boost_cfg.in_openloop) {
+                Platform_OpenLoop_Boost_Output(1);
+                break;
+            }
             // // ----------------------------------------------------------------------------
             
             Platform_Cal_3Degree_IK_Output();
