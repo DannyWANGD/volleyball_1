@@ -50,7 +50,7 @@ typedef struct {
 static OpenLoopBoostConfig boost_cfg = {
     .enabled         = 1,       // 默认启用
     .pid_switch_dist = 0.15f,   // 距顶点5cm时切换到PID减速
-    .max_torque      = 25.0f,   // 最大扭矩
+    .max_torque      = 30.0f,   // 最大扭矩
     .in_openloop     = 0
 };
 
@@ -224,9 +224,9 @@ void Platform_Update_Fdb() {
 	
 	// 进行坐标系标定，处理零点偏移量
     // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
-    Platform->fdb.front_pitch_angle = 73.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
+    Platform->fdb.front_pitch_angle = 70.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
 	Platform->fdb.left_pitch_angle  = 63.0f-Motor_Pitch_Left_Motor_A1.encoder.angle;
-  	Platform->fdb.right_pitch_angle = 68.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
+  	Platform->fdb.right_pitch_angle = 70.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
     Motor_Pitch_Left_Motor_A1.watchdog += 1;
@@ -266,9 +266,9 @@ void Platform_Check() {
  */
 void Platform_OpenLoop_Boost_Output(int8_t direction) {
     float boost_torque = boost_cfg.max_torque * direction;
-    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, boost_torque - 1.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  boost_torque - 1.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, boost_torque - 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, boost_torque + 2.0f);
+    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  boost_torque + 1.5f);
+    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, boost_torque + 1.5f);
 }
 
 float dist_to_top;
@@ -394,12 +394,12 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 
     case Platform_fast:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
+                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -3.0f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, 0.0f, torque2);
+                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -3.0f, torque2);
       // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
+                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -3.0f, torque3);
       break;
 
     default:
@@ -553,7 +553,7 @@ static inline void Z_ApplyProfileSafe(void) {
 // 保留速度状态和目标
 static float l_traj_v              = 0.0f;        // 高度 z 方向的速度状态
 static float l_traj_z              = 0.08f;       // 高度 z 方向的位置状态
-static float hit_pitch_goal      = 0.0f;        // 击球时的目标 pitch 角度
+static float hit_pitch_goal      = 15.0f;        // 击球时的目标 pitch 角度
 static float hit_roll_goal       = 0.0f;        // 击球时的目标 roll 角度
 static const float z_near_zero   = 0.001f;      // 认为高度 z 值收敛的阈值
 static const float v_near_zero   = 0.01f;       // 认为速度 v 收敛的阈值（m/s）
@@ -705,20 +705,20 @@ void Platform_Jiefa_Cal(float hit) {
             // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
             // -----------------------------------------------------------------------------
             // ===== 开环加速检测：距顶点较远时直接输出最大扭矩 =====
-            if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
-                // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
-                l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
-                l_traj_v += z_profile.a_up_max * dt; // 估算速度
-                // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
-                //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
-                // }
-                // 角度仍按平滑推进
-                AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
-                                  REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-                                  REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
-                WriteTargetFromState();
-                return; // 直接返回，不执行后续PID控制
-            }
+            // if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
+            //     // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
+            //     l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
+            //     l_traj_v += z_profile.a_up_max * dt; // 估算速度
+            //     // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
+            //     //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
+            //     // }
+            //     // 角度仍按平滑推进
+            //     AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
+            //                       REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
+            //                       REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
+            //     WriteTargetFromState();
+            //     return; // 直接返回，不执行后续PID控制
+            // }
             // ===== 接近顶点：使用PID减速控制 =====
             // -----------------------------------------------------------------------------
 
@@ -886,10 +886,10 @@ void Platform_Control() {
             // // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
             // // -----------------------------------------------------------------------------
             // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
-            if (boost_cfg.enabled && boost_cfg.in_openloop) {
-                Platform_OpenLoop_Boost_Output(1);
-                break;
-            }
+            // if (boost_cfg.enabled && boost_cfg.in_openloop) {
+            //     Platform_OpenLoop_Boost_Output(1);
+            //     break;
+            // }
             // // ----------------------------------------------------------------------------
             
             Platform_Cal_3Degree_IK_Output();
