@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
-float PLATFORM_Z_MAX = 0.30f;
+float PLATFORM_Z_MAX = 0.28f;
 #define PITCH_TORQUE_LIMIT   30.0f
 #define YAW_TORQUE_LIMIT     30.0f
 
@@ -49,8 +49,8 @@ typedef struct {
 
 static OpenLoopBoostConfig boost_cfg = {
     .enabled         = 1,       // 默认启用
-    .pid_switch_dist = 0.10f,   // 距顶点5cm时切换到PID减速
-    .max_torque      = 20.0f,   // 最大扭矩
+    .pid_switch_dist = 0.15f,   // 距顶点5cm时切换到PID减速
+    .max_torque      = 25.0f,   // 最大扭矩
     .in_openloop     = 0
 };
 
@@ -224,9 +224,9 @@ void Platform_Update_Fdb() {
 	
 	// 进行坐标系标定，处理零点偏移量
     // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
-    Platform->fdb.front_pitch_angle = 65.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
-	Platform->fdb.left_pitch_angle  = 55.0f-Motor_Pitch_Left_Motor_A1.encoder.angle;
-  	Platform->fdb.right_pitch_angle = 60.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
+    Platform->fdb.front_pitch_angle = 73.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
+	Platform->fdb.left_pitch_angle  = 63.0f-Motor_Pitch_Left_Motor_A1.encoder.angle;
+  	Platform->fdb.right_pitch_angle = 68.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
     Motor_Pitch_Left_Motor_A1.watchdog += 1;
@@ -361,9 +361,9 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 	
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 	
-	LimitMaxMin(ang1,75.0f,-30.0f);
-	LimitMaxMin(ang2,75.0f,-30.0f);
-	LimitMaxMin(ang3,75.0f,-30.0f);
+	LimitMaxMin(ang1,60.0f,-30.0f);
+	LimitMaxMin(ang2,60.0f,-30.0f);
+	LimitMaxMin(ang3,60.0f,-30.0f);
 	LimitMaxMin(ang4,30.0f,-30.0f);
 	LimitMaxMin(ang5,150.0f,90.0f);
 	LimitMaxMin(ang6,270.0f,210.0f);
@@ -542,9 +542,9 @@ ZTrajProfile z_profile = {
 };
 
 static inline void Z_ApplyProfileSafe(void) {
-    z_profile.v_up_max      = 10.0f;
-    z_profile.a_up_max      = 10.0f;
-    z_profile.ret_ratio     = 0.001f;
+    z_profile.v_up_max      = 20.0f;
+    z_profile.a_up_max      = 30.0f;
+    z_profile.ret_ratio     = 0.02f;
     z_profile.brake_gain    = 0.10f;
     z_profile.boost_err     = 0.05f;
     z_profile.boost_gain    = 1.00f;
@@ -555,7 +555,7 @@ static float l_traj_v              = 0.0f;        // 高度 z 方向的速度状
 static float l_traj_z              = 0.08f;       // 高度 z 方向的位置状态
 static float hit_pitch_goal      = 0.0f;        // 击球时的目标 pitch 角度
 static float hit_roll_goal       = 0.0f;        // 击球时的目标 roll 角度
-static const float z_near_zero   = 0.01f;      // 认为高度 z 值收敛的阈值
+static const float z_near_zero   = 0.001f;      // 认为高度 z 值收敛的阈值
 static const float v_near_zero   = 0.01f;       // 认为速度 v 收敛的阈值（m/s）
 static const float ang_near_zero = 3.0f;        // 认为角度 ang 收敛的阈值（度）
 static const float w_near_zero   = 3.0f;        // 认为角速度 w 收敛的阈值（度/s）
@@ -737,12 +737,12 @@ void Platform_Jiefa_Cal(float hit) {
             // 上顶误差与刹车判据：进入制动距离后使速度指令为零以线性刹停
             float e_top = PLATFORM_Z_MAX - l_traj_z;
             // 满足 Z 到顶/接近/速度近零/进入刹车段 → 切换到回落（避免等待角度导致卡死）
-            if (reached_up_z || (fabsf(e_top) <= z_near_zero) || (fabsf(l_traj_v) <= v_near_zero) ) {
+            if (reached_up_z && (fabsf(e_top) <= z_near_zero) && (fabsf(l_traj_v) <= v_near_zero) ) {
                 hit_state = STATE_RETURNING;
             }
     } else if (hit_state == STATE_RETURNING) {
             Platform_Reset_OpenLoop_Boost(); // 重置开环加速状态
-            Platform_Set_OutputState(Platform_slow);
+            Platform_Set_OutputState(Platform_middle);
 
             // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
             (void)Traj_Update(Initial_Z_Position, dt, v_set_down, a_limit_dn,
@@ -754,12 +754,12 @@ void Platform_Jiefa_Cal(float hit) {
                               REMOTE_PITCH_V_MAX * z_profile.ret_ratio, REMOTE_PITCH_A_MAX * z_profile.ret_ratio,
                               REMOTE_ROLL_V_MAX  * z_profile.ret_ratio, REMOTE_ROLL_A_MAX  * z_profile.ret_ratio);
             WriteTargetFromState();
-
+                
             // 高度回落完成：位置接近初始且速度近零
-            int reached_dn_z = (fabsf(Initial_Z_Position - l_traj_z) <= z_near_zero) || (fabsf(l_traj_v) <= v_near_zero);
+            int reached_dn_z = (fabsf(Initial_Z_Position - l_traj_z) <= z_near_zero) && (fabsf(l_traj_v) <= v_near_zero);
             // 角度回落完成：接近 0 度或角速度近零
-            int pitch_back = (fabsf(Platform->tar.plat_pitch) <= ang_near_zero) || (fabsf(pitch_traj_v) <= w_near_zero);
-            int roll_back  = (fabsf(Platform->tar.plat_roll)  <= ang_near_zero) || (fabsf(roll_traj_v)  <= w_near_zero);
+            int pitch_back = (fabsf(Platform->tar.plat_pitch) <= ang_near_zero) && (fabsf(pitch_traj_v) <= w_near_zero);
+            int roll_back  = (fabsf(Platform->tar.plat_roll)  <= ang_near_zero) && (fabsf(roll_traj_v)  <= w_near_zero);
 
             // 三项均满足 → 标记击球完成，进入冷却
             if (reached_dn_z && pitch_back && roll_back) {

@@ -27,7 +27,7 @@ void Platform_Task(void const * argument) {
     // 获取最新的传感器反馈数据
     Platform_Update_Fdb();
     // 进行安全监控
-    // Platform_Check();
+    Platform_Check();
 
     /*if(Platform->error_code == 0){
       Platform_Control();
