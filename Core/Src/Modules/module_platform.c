@@ -24,7 +24,7 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
-float PLATFORM_Z_MAX = 0.28f;
+float PLATFORM_Z_MAX = 0.30f;
 #define PITCH_TORQUE_LIMIT   30.0f
 #define YAW_TORQUE_LIMIT     30.0f
 
@@ -49,7 +49,7 @@ typedef struct {
 
 static OpenLoopBoostConfig boost_cfg = {
     .enabled         = 1,       // 默认启用
-    .pid_switch_dist = 0.10f,   // 距顶点5cm时切换到PID减速
+    .pid_switch_dist = 0.07f,   // 距顶点5cm时切换到PID减速
     .max_torque      = 20.0f,   // 最大扭矩
     .in_openloop     = 0
 };
@@ -211,7 +211,7 @@ uint16_t watchdog2;
 
 
 // 新增：击球位姿控制相关变量
-typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_RETURNING = 2, STATE_COOLDOWN = 3 } HitState_t;
+typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_BRAKING = 2, STATE_RETURNING = 3, STATE_COOLDOWN = 4 } HitState_t;
 HitState_t hit_state = STATE_IDLE;
 
 uint8_t output_state;
@@ -224,9 +224,9 @@ void Platform_Update_Fdb() {
 	
 	// 进行坐标系标定，处理零点偏移量
     // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
-    Platform->fdb.front_pitch_angle = 70.0f-Motor_Pitch_Front_Motor_A1.encoder.angle;
-	Platform->fdb.left_pitch_angle  = 63.0f-Motor_Pitch_Left_Motor_A1.encoder.angle;
-  	Platform->fdb.right_pitch_angle = 70.0f-Motor_Pitch_Right_Motor_A1.encoder.angle;
+    Platform->fdb.front_pitch_angle = -70.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
+	Platform->fdb.left_pitch_angle  = -60.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
+  	Platform->fdb.right_pitch_angle = -65.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
     Motor_Pitch_Left_Motor_A1.watchdog += 1;
@@ -374,32 +374,32 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
     case Platform_slow:
       // Go1原版：CASCADE_PITCH(..., Motor_Pitch_Front_Motor.encoder.speed, -1.0f, -1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, 1.0f, 1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.5f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, 1.0f, 1.5f, torque2);
       // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Slow_PIDParam, Platform->pid.Pitch_Spd_Slow_PIDParam,
-                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, 1.0f, 1.5f, torque3);
       break;
 
     case Platform_middle:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.5f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, 1.0f, 1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.5f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, 1.0f, 1.5f, torque2);
       // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Middle_PIDParam, Platform->pid.Pitch_Spd_Middle_PIDParam,
-                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.5f, torque3);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, 1.0f, 1.5f, torque3);
       break;
 
     case Platform_fast:
       CASCADE_PITCH(Platform->pid.Pitch1_Ang_PID, Platform->pid.Pitch1_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, -1.0f, -1.0f, torque1);
+                    ang1, Platform->fdb.front_pitch_angle, Motor_Pitch_Front_Motor_A1.encoder.speed, 1.0f, 1.5f, torque1);
       CASCADE_PITCH(Platform->pid.Pitch2_Ang_PID, Platform->pid.Pitch2_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, -1.0f, -1.0f, torque2);
+                    ang2, Platform->fdb.left_pitch_angle, Motor_Pitch_Left_Motor_A1.encoder.speed, 1.0f, 1.5f, torque2);
       // Right 电机测试：速度取反
       CASCADE_PITCH(Platform->pid.Pitch3_Ang_PID, Platform->pid.Pitch3_Spd_PID, Platform->pid.Pitch_Ang_Fast_PIDParam, Platform->pid.Pitch_Spd_Fast_PIDParam,
-                    -ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, -1.0f, -1.0f, torque3);
+                    ang3, Platform->fdb.right_pitch_angle, Motor_Pitch_Right_Motor_A1.encoder.speed, 1.0f, 1.5f, torque3);
       break;
 
     default:
@@ -458,6 +458,12 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
       last_spd_A1[0] = Motor_Pitch_Front_Motor_A1.encoder.speed;
       last_spd_A1[1] = Motor_Pitch_Left_Motor_A1.encoder.speed;
       last_spd_A1[2] = Motor_Pitch_Right_Motor_A1.encoder.speed;
+  }
+
+  if (hit_state == STATE_BRAKING) {
+    torque1 -= 5.0f;
+    torque2 -= 4.0f;
+    torque3 -= 4.0f;
   }
   // ------------------------------------------------------------------------------------------------
 
@@ -548,6 +554,9 @@ void Platform_Set_Target_Pos(float x,float y,float z,float pitch,float yaw,float
 // 逆运动学解算【数学核心】
 void Platform_Cal_3Degree_IK_Output() {
 	
+    if (hit_state == STATE_BRAKING) {
+        return;  // 跳过逆运动学计算，保持锁存角度
+    }
 	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 
 	float z = Platform->tar.plat_z;
@@ -598,9 +607,9 @@ ZTrajProfile z_profile = {
 };
 
 static inline void Z_ApplyProfileSafe(void) {
-    z_profile.v_up_max      = 20.0f;
+    z_profile.v_up_max      = 15.0f;
     z_profile.a_up_max      = 30.0f;
-    z_profile.ret_ratio     = 0.02f;
+    z_profile.ret_ratio     = 0.05f;
     z_profile.brake_gain    = 0.10f;
     z_profile.boost_err     = 0.05f;
     z_profile.boost_gain    = 1.00f;
@@ -611,7 +620,7 @@ static float l_traj_v              = 0.0f;        // 高度 z 方向的速度状
 static float l_traj_z              = 0.08f;       // 高度 z 方向的位置状态
 static float hit_pitch_goal      = 10.0f;        // 击球时的目标 pitch 角度
 static float hit_roll_goal       = 0.0f;        // 击球时的目标 roll 角度
-static const float z_near_zero   = 0.02f;      // 认为高度 z 值收敛的阈值
+static const float z_near_zero   = 0.07f;      // 认为高度 z 值收敛的阈值
 static const float v_near_zero   = 0.01f;       // 认为速度 v 收敛的阈值（m/s）
 static const float ang_near_zero = 3.0f;        // 认为角度 ang 收敛的阈值（度）
 static const float w_near_zero   = 3.0f;        // 认为角速度 w 收敛的阈值（度/s）
@@ -764,7 +773,7 @@ void Platform_Jiefa_Cal(float hit) {
             if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
                 // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
                 l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
-                l_traj_v += z_profile.a_up_max * dt; // 估算速度
+                l_traj_v += 0.5 * z_profile.a_up_max * dt; // 估算速度
                 // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
                 //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
                 // }
@@ -778,7 +787,7 @@ void Platform_Jiefa_Cal(float hit) {
             // ===== 接近顶点：使用PID减速控制 =====
             // -----------------------------------------------------------------------------
 
-
+            
             // 高度推进
             int reached_up_z = Traj_Update(PLATFORM_Z_MAX, dt, v_set_up, a_limit_up,
                                            &l_traj_z, &l_traj_v,
@@ -794,11 +803,79 @@ void Platform_Jiefa_Cal(float hit) {
             float e_top = PLATFORM_Z_MAX - l_traj_z;
             // 满足 Z 到顶/接近/速度近零/进入刹车段 → 切换到回落（避免等待角度导致卡死）
             if (reached_up_z && (fabsf(e_top) <= z_near_zero) && (fabsf(l_traj_v) <= v_near_zero) ) {
-                hit_state = STATE_RETURNING;
+                hit_state = STATE_BRAKING;
             }
-    } else if (hit_state == STATE_RETURNING) {
+    } else if (hit_state == STATE_BRAKING) {
+
+            static uint8_t braking_initialized = 0;
+            static float brake_ang1, brake_ang2, brake_ang3;
+            
+            if (!braking_initialized) {
+
+                l_traj_z = PLATFORM_Z_MAX - 0.1f;
+                l_traj_v = 0.0f;
+                WriteTargetFromState();
+
+                // 【新增】锁存当前电机反馈角度作为刹车目标
+                brake_ang1 = Platform->fdb.front_pitch_angle;
+                brake_ang2 = Platform->fdb.left_pitch_angle;
+                brake_ang3 = Platform->fdb.right_pitch_angle;
+                
+                // 清零所有PID积分状态
+                PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
+                PID_ClearPID(&Platform->pid.Pitch1_Spd_PID);
+                PID_ClearPID(&Platform->pid.Pitch2_Ang_PID);
+                PID_ClearPID(&Platform->pid.Pitch2_Spd_PID);
+                PID_ClearPID(&Platform->pid.Pitch3_Ang_PID);
+                PID_ClearPID(&Platform->pid.Pitch3_Spd_PID);
+                
+                // 【关键】清零后立刻设置ref为当前反馈（误差=0）
+                PID_SetPIDRef(&Platform->pid.Pitch1_Ang_PID, brake_ang1);
+                PID_SetPIDRef(&Platform->pid.Pitch2_Ang_PID, brake_ang2);
+                PID_SetPIDRef(&Platform->pid.Pitch3_Ang_PID, brake_ang3);
+                
+                Platform_Set_OutputState(Platform_fast);
+                braking_initialized = 1;
+            }
+            
+            // 【关键2】保持当前位置不动,等待速度衰减
+            Platform_Set_Angle_Output(brake_ang1, brake_ang2, brake_ang3, 0, 120, 240);
+            
+            // 【关键3】监控三个电机速度,全部低于阈值后切换
+            float spd1 = Motor_Pitch_Front_Motor_A1.encoder.speed;
+            float spd2 = Motor_Pitch_Left_Motor_A1.encoder.speed;
+            float spd3 = Motor_Pitch_Right_Motor_A1.encoder.speed;
+            
+            static float brake_stable_start_time = 0.0f;  // 新增：记录速度首次达标的时间
+            #define BRAKE_STABLE_DURATION 0.8f  // 需要维持低速状态的时间（秒）
+
+            // 检查速度是否满足条件
+            if (fabsf(spd1) < 2.0f && fabsf(spd2) < 2.0f && fabsf(spd3) < 2.0f) {
+                // 速度满足低速条件
+                if (brake_stable_start_time == 0.0f) {
+                    // 首次满足条件，记录时间戳
+                    brake_stable_start_time = DWT_GetTimeline_s();
+                } else {
+                    // 已在计时，检查是否持续足够时间
+                    float elapsed = DWT_GetTimeline_s() - brake_stable_start_time;
+                    if (elapsed >= BRAKE_STABLE_DURATION) {
+                        // 已持续1秒，可以切换状态
+                        pitch_traj_v = 0.0f;
+                        roll_traj_v = 0.0f;
+                        brake_stable_start_time = 0.0f;  // 重置计时器
+                        braking_initialized = 0;
+                        hit_state = STATE_RETURNING;
+                    }
+                    // 否则继续等待
+                }
+            } else {
+                // 速度不满足条件（又加速了），重置计时器
+                brake_stable_start_time = 0.0f;
+            }
+    } else if ( hit_state == STATE_RETURNING) {
             Platform_Reset_OpenLoop_Boost(); // 重置开环加速状态
-            Platform_Set_OutputState(Platform_slow);
+            Platform_Set_OutputState(Platform_slow);  
+            // l_traj_z = PLATFORM_Z_MAX-0.05f;
 
             // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
             (void)Traj_Update(Initial_Z_Position, dt, v_set_down, a_limit_dn,
