@@ -102,13 +102,17 @@ typedef struct {
   Platform_TargetTypeDef tar; //目标数据
   Platform_PIDTypeDef pid; //PID参数
 
+	uint8_t flag;
   float update_dt; //更新周期
   uint32_t last_update_tick; //上次更新时刻
   uint8_t error_code; //错误代码
 
 } Platform_DataTypeDef;
 
+typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_BRAKING = 2, STATE_RETURNING = 3, STATE_COOLDOWN = 4 } HitState_t;
+
 extern Platform_DataTypeDef Platform_Data;
+extern HitState_t hit_state;
 Platform_DataTypeDef* Platform_GetPlatformPtr(void);
 void Platform_Init();
 void Platform_Update_Fdb();

@@ -99,6 +99,9 @@ extern const float Const_Comm_OFFLINE_TIME;
 extern const float Const_Gimbal_Yaw_OFFSET;
 extern const float Const_Gimbal_Pitch_OFFSET;
 
+extern const uint16_t Remote_RockerMin;
+extern const uint16_t Remote_RockerMiddle;
+extern const uint16_t Remote_RockerMax;
 #endif
 
 #ifdef __cplusplus

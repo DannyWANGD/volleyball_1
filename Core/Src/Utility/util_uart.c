@@ -167,7 +167,7 @@ void Uart_ReceiveDMA(UART_HandleTypeDef* huart, uint8_t rxdata[], uint32_t size)
     
     uint32_t tmp1 = 0;
     tmp1 = huart->RxState;
-    if (tmp1 == HAL_UART_STATE_READY) {
+    //if (tmp1 == HAL_UART_STATE_READY) {
         if ((rxdata == NULL) || (size == 0)) return;
         
         huart->pRxBuffPtr = rxdata;
@@ -180,7 +180,7 @@ void Uart_ReceiveDMA(UART_HandleTypeDef* huart, uint8_t rxdata[], uint32_t size)
          * in the UART CR3 register 
          */
         SET_BIT(huart->Instance->CR3, USART_CR3_DMAR);
-    }
+    //}
 }
 
 
@@ -190,12 +190,18 @@ void Uart_ReceiveDMA(UART_HandleTypeDef* huart, uint8_t rxdata[], uint32_t size)
   * @retval     NULL
   */
 void Uart_ReceiveHandler(UART_HandleTypeDef *huart) {
+	
+	volatile uint32_t current_sr = huart->Instance->SR;
+	Uart_RxIdleCallback(huart);
+	
     // clear idle it flag after uart receive a frame data
     if (__HAL_UART_GET_FLAG(huart, UART_FLAG_IDLE) && __HAL_UART_GET_IT_SOURCE(huart, UART_IT_IDLE)) {
         /* clear idle it flag avoid idle interrupt all the time */
         __HAL_UART_CLEAR_IDLEFLAG(huart);
         /* handle received data in idle interrupt */
-        Uart_RxIdleCallback(huart);
+       int test_flag = 1;
+			Uart_RxIdleCallback(huart);
     }
 }
+
 

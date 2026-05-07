@@ -24,10 +24,16 @@ Platform_DataTypeDef Platform_Data;
  static inline void Z_ApplyProfileAggressive(void);
  static inline void Z_ApplyProfileSafe(void);
 // Z 轴高度安全上限（保留）
-float PLATFORM_Z_MAX = 0.30f;
+float PLATFORM_Z_MAX = 0.25f;
+//#define PITCH_TORQUE_LIMIT   30.0f
+//#define YAW_TORQUE_LIMIT     30.0f
+
 #define PITCH_TORQUE_LIMIT   30.0f
 #define YAW_TORQUE_LIMIT     30.0f
 
+// 纠偏增益：如果偏差 1 度（约 0.017rad），输出 0.85Nm 纠偏力矩
+// 调试时：若没效果就加大，若剧烈抖动就减小
+#define K_TWIST_COMP  8.0f
 // 轨迹平滑控制（Z 高度）——参数与状态（简化版：统一配置 + 兼容宏）
 typedef struct {
     float v_up_max;       // 上升最大速度
@@ -47,9 +53,9 @@ typedef struct {
     uint8_t  in_openloop;       // 当前是否处于开环加速状态
 } OpenLoopBoostConfig;
 
-static OpenLoopBoostConfig boost_cfg = {
+static OpenLoopBoostConfig boost_cfg = { 
     .enabled         = 1,       // 默认启用
-    .pid_switch_dist = 0.07f,   // 距顶点5cm时切换到PID减速
+    .pid_switch_dist = 0.15f,   // 距顶点5cm时切换到PID减速
     .max_torque      = 20.0f,   // 最大扭矩
     .in_openloop     = 0
 };
@@ -131,11 +137,12 @@ void Platform_Init() {
 	Platform->fdb.plat_roll = 0;
 	Platform->tar.plat_x = 0;
 	Platform->tar.plat_y = 0;
-	Platform->tar.plat_z = 0.08f;
+	Platform->tar.plat_z = 0.01f;
 	Platform->tar.plat_pitch = 0;
 	Platform->tar.plat_yaw = 0;
 	Platform->tar.plat_roll = 0;
 
+	Platform->flag = 0;
 
 	PID_InitPIDParam(&Platform->pid.Pitch_Ang_Fast_PIDParam,
                     Const_Platform_Pitch_Ang_Param[0][0][0], // kp
@@ -211,8 +218,10 @@ uint16_t watchdog2;
 
 
 // 新增：击球位姿控制相关变量
-typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_BRAKING = 2, STATE_RETURNING = 3, STATE_COOLDOWN = 4 } HitState_t;
+
 HitState_t hit_state = STATE_IDLE;
+
+
 
 uint8_t output_state;
 uint64_t last_output_time;
@@ -224,8 +233,8 @@ void Platform_Update_Fdb() {
 	
 	// 进行坐标系标定，处理零点偏移量
     // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
-    Platform->fdb.front_pitch_angle = -70.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
-	Platform->fdb.left_pitch_angle  = -60.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
+    Platform->fdb.front_pitch_angle = -58.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
+		Platform->fdb.left_pitch_angle  = -60.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
   	Platform->fdb.right_pitch_angle = -65.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
@@ -265,10 +274,46 @@ void Platform_Check() {
  * @note       用于初始阶段快速加速，充分利用电机峰值扭矩
  */
 void Platform_OpenLoop_Boost_Output(int8_t direction) {
-    float boost_torque = boost_cfg.max_torque * direction;
-    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, boost_torque);
-    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  boost_torque + 0.5f);
-    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, boost_torque + 0.5f);
+		Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+	
+    float base_torque = boost_cfg.max_torque * direction;
+	
+		// 2. 获取当前三个电机的实时角度反馈
+		float ang_f = Platform->fdb.front_pitch_angle;
+    float ang_l = Platform->fdb.left_pitch_angle;
+    float ang_r = Platform->fdb.right_pitch_angle;
+	  float avg_ang = (ang_f + ang_l + ang_r) / 3.0f;//计算平均位置
+	
+    // 4. 定义死区（单位：度）
+    // 排球冲击大，不建议死区设置过大。建议 0.5f - 1.0f 左右
+    float deadzone = 4.0f; 
+    
+    // 5. 计算偏差并应用死区逻辑
+    float diff_f = avg_ang - ang_f;
+    float diff_l = avg_ang - ang_l;
+    float diff_r = avg_ang - ang_r;
+    
+    // 纠偏分量计算函数（局部逻辑：超过死区的部分才计算力矩）
+    // 这样可以保证力矩从 0 开始平滑增加，而不是瞬间跳变
+    if (fabs(diff_f) < deadzone) diff_f = 0.0f;
+    else diff_f = (diff_f > 0) ? (diff_f - deadzone) : (diff_f + deadzone);
+    
+    if (fabs(diff_l) < deadzone) diff_l = 0.0f;
+    else diff_l = (diff_l > 0) ? (diff_l - deadzone) : (diff_l + deadzone);
+    
+    if (fabs(diff_r) < deadzone) diff_r = 0.0f;
+    else diff_r = (diff_r > 0) ? (diff_r - deadzone) : (diff_r + deadzone);
+
+    // 6. 计算最终力矩
+    // K_TWIST_COMP 对排球建议在 8.0 - 15.0 左右
+    float t_f = base_torque + diff_f * K_TWIST_COMP;
+    float t_l = (base_torque + 0.5f) + diff_l * K_TWIST_COMP;
+    float t_r = (base_torque + 0.5f) + diff_r * K_TWIST_COMP;
+    
+    // 7. 发送输出
+    Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, t_f);
+    Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  t_l); // 修正：原代码重复加了0.5f，这里统一在计算时处理
+    Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, t_r);
 }
 
 float dist_to_top;
@@ -330,6 +375,7 @@ void Platform_Set_Torque_Output(float torque1,float torque2,float torque3,float 
 
 static float spd_filtered[3] = {0.0f};  // 三个电机的滤波速度
 #define SPEED_FILTER_ALPHA 0.5f  // 滤波强度
+static float right_left_gain = 1.2;
 
 // 实现位置-速度串级双环 PID 控制器，是整个闭环控制的核心算法
 // 内部消除重复：使用宏封装串级计算，保持接口与行为不变
@@ -361,9 +407,9 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 	
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 	
-	LimitMaxMin(ang1,60.0f,-30.0f);
-	LimitMaxMin(ang2,60.0f,-30.0f);
-	LimitMaxMin(ang3,60.0f,-30.0f);
+	LimitMaxMin(ang1,28.0f,-30.0f);
+	LimitMaxMin(ang2,28.0f,-30.0f);
+	LimitMaxMin(ang3,28.0f,-30.0f);
 	LimitMaxMin(ang4,30.0f,-30.0f);
 	LimitMaxMin(ang5,150.0f,90.0f);
 	LimitMaxMin(ang6,270.0f,210.0f);
@@ -406,6 +452,7 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
       break;
   }
 
+	
   // ------------------------------------------------------------------------------------------------
   // [Algorithm Added] 击球阻力补偿算法 (仅在上升阶段 STATE_RISING 生效)
   // ------------------------------------------------------------------------------------------------
@@ -419,7 +466,7 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
       if (dt > 0.0001f && dt < 0.1f) {
           // === 参数配置区 (建议根据实测波形调整) ===
           const float ACC_TRIGGER_THRESHOLD = -1000.0f; // 触发阈值: 减速度超过此值 (rad/s^2)
-          const float IMPACT_GAIN = 0.015f;             // 增益: 每 1 unit 减速度补偿的力矩 (Nm)
+          const float IMPACT_GAIN = 0.02f;             // 增益: 每 1 unit 减速度补偿的力矩 (Nm)
           const float MAX_EXTRA_TORQUE = 5.0f;        // 补偿限幅: 最大允许额外增加的力矩 (Nm)
           // ======================================
 
@@ -460,11 +507,31 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
       last_spd_A1[2] = Motor_Pitch_Right_Motor_A1.encoder.speed;
   }
 
-  if (hit_state == STATE_BRAKING) {
-    torque1 -= 5.0f;
-    torque2 -= 4.0f;
-    torque3 -= 4.0f;
-  }
+    // ================================================================================================
+    // [核心新增] 底层软件缓冲 (Soft Buffer)：防止超调撞击限位与起车
+    // ================================================================================================
+    float current_z = Platform->fdb.plat_z;
+	  // 使用三个电机的平均速度来判定上升趋势
+    float avg_v = (Motor_Pitch_Front_Motor_A1.encoder.speed + 
+                   Motor_Pitch_Left_Motor_A1.encoder.speed + 
+                   Motor_Pitch_Right_Motor_A1.encoder.speed) / 3.0f;
+
+    // 触发点设在 0.302f（目标 0.30m 上方 2mm），保护力臂限位
+    const float SOFT_STOP_START_Z = 0.232f; 
+    const float SOFT_STOP_K       = 1200.0f; // 虚拟弹簧系数
+    const float SOFT_STOP_D       = 20.0f;   // 虚拟阻尼，吸收撞击动能
+    
+    // 只有当位置超过阈值且仍在向上冲时介入
+    if (current_z > SOFT_STOP_START_Z && avg_v > 5.0f) {
+        float delta_z = current_z - SOFT_STOP_START_Z;
+        // 计算反向压制力矩
+				float brake_force = (delta_z * SOFT_STOP_K) + (avg_v * SOFT_STOP_D);
+        // 即使在高速下，也设置一个天花板，防止瞬间反拉力矩过猛
+				if (brake_force > 20.0f) brake_force = 20.0f;
+					torque1 -= brake_force;
+					torque2 -= brake_force;
+					torque3 -= brake_force;
+    }
   // ------------------------------------------------------------------------------------------------
 
   Platform_Set_Torque_Output(torque1, torque2, torque3, 0.0f, 0.0f, 0.0f);
@@ -584,7 +651,7 @@ void Platform_Cal_3Degree_IK_Output() {
            - acosf((powf(z * sin_ro - (sqrtf(3) * R) / 2 +(sqrtf(3) * r *cos_ro) / 2, 2) + powf(R / 2 - (r *cos_pi) / 2 + z *cos_ro *sin_pi -(sqrtf(3) * r *sin_pi * sin_ro) / 2, 2) +powf((r *sin_pi) / 2 + z *cos_pi *cos_ro -(sqrtf(3) * r *cos_pi * sin_ro) / 2, 2) +L * L - l * l) /(2 * L * sqrtf(powf(z * sin_ro - (sqrtf(3) * R) / 2 +(sqrtf(3) * r *cos_ro) / 2, 2) +powf(R / 2 - (r *cos_pi) / 2 + z *cos_ro *sin_pi -(sqrtf(3) * r *sin_pi * sin_ro) / 2, 2) +powf((r *sin_pi) / 2 + z *cos_pi *cos_ro -(sqrtf(3) * r *cos_pi * sin_ro) / 2, 2))));
 	
 	// 解算出的角度会直接赋给 Platform_Set_Angle_Output() 函数并启动闭环控制
-  	Platform_Set_Angle_Output(rad2deg(theta1),rad2deg(theta2),rad2deg(theta3),0,120,240);
+  	Platform_Set_Angle_Output(0.5*rad2deg(theta1),right_left_gain*rad2deg(theta2),right_left_gain*rad2deg(theta3),0,120,240);
 
 }
 
@@ -617,10 +684,10 @@ static inline void Z_ApplyProfileSafe(void) {
 
 // 保留速度状态和目标
 static float l_traj_v              = 0.0f;        // 高度 z 方向的速度状态
-static float l_traj_z              = 0.08f;       // 高度 z 方向的位置状态
-static float hit_pitch_goal      = 10.0f;        // 击球时的目标 pitch 角度
+static float l_traj_z              = 0.0f;       // 高度 z 方向的位置状态
+static float hit_pitch_goal      = 15.0f;        // 击球时的目标 pitch 角度
 static float hit_roll_goal       = 0.0f;        // 击球时的目标 roll 角度
-static const float z_near_zero   = 0.07f;      // 认为高度 z 值收敛的阈值
+static const float z_near_zero   = 0.1f;      // 认为高度 z 值收敛的阈值
 static const float v_near_zero   = 0.01f;       // 认为速度 v 收敛的阈值（m/s）
 static const float ang_near_zero = 3.0f;        // 认为角度 ang 收敛的阈值（度）
 static const float w_near_zero   = 3.0f;        // 认为角速度 w 收敛的阈值（度/s）
@@ -745,246 +812,203 @@ static inline int AnglesReady(float pitch_goal, float roll_goal)
 }
 
 float cooldown_elapsed;
+
 // =================================================================
 // ------------------------- 平台击打控制函数 -------------------------
 // =================================================================
+
+// Jiefa 击球状态机参数
+#define JIEFA_MAX_TORQUE      33.0f   // 加速阶段最大力矩 (Nm)
+#define JIEFA_TORQUE      18.0     // 期望的初始力矩
+#define JIEFA_ALPHA_TARGET    35.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
+#define JIEFA_BRAKE_ANG_TOL   1.0f    // 刹车角度容差 (度)
+#define JIEFA_BRAKE_SPD_TOL   2.0f    // 刹车速度容差 (rad/s)
+#define JIEFA_RETURN_SPD_TOL  1.0f    // 返回阶段速度容差 (rad/s)
+#define JIEFA_COOLDOWN_S      2.5f    // 两次击球最小间隔 (秒)
+#define JIEFA_FRONT_OFFSET    0.0f    // 前侧电机补偿角
+
+static float jiefa_start_angle[3] = {0};  // 击球起始角度（绝对）
+static float jiefa_alpha[3] = {0};        // 刹车锁定角度（绝对）
+static float jiefa_last_trigger = -10.0f; // 上次触发时刻
+
+
 void Platform_Jiefa_Cal(float hit) {
-  
+
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-    // 使用系统已计算的精确 dt（秒），若异常则给一个保守默认值
-    float dt = Platform->update_dt;
-    if (dt <= 0.0f || dt > 0.05f) {
-        dt = 0.005f;
+
+    // 仅 hit == 1.0f 时触发
+    if (hit != 1.0f) return;
+
+    float now = DWT_GetTimeline_s();
+
+    // ===== STATE_IDLE: 等待触发（含 2s 冷却）=====
+    if (hit_state == STATE_IDLE) {
+        if (now - jiefa_last_trigger < JIEFA_COOLDOWN_S) return;
+        jiefa_last_trigger = now;
+        // 记录击球起始的绝对角度
+        jiefa_start_angle[0] = Platform->fdb.front_pitch_angle;
+        jiefa_start_angle[1] = Platform->fdb.left_pitch_angle;
+        jiefa_start_angle[2] = Platform->fdb.right_pitch_angle;
+        hit_state = STATE_RISING;
+        Platform_Set_OutputState(Platform_fast);
     }
 
-    const float v_set_up   = z_profile.v_up_max;
-    const float a_limit_up = z_profile.a_up_max;
-    const float v_set_down = z_profile.v_up_max * z_profile.ret_ratio;
-    const float a_limit_dn =  z_profile.a_up_max * z_profile.ret_ratio;
-
-    // 内嵌接口：使用用户速度/加速度版本进行平滑控制
-    // 统一使用配置化参数（z_profile 派生出上升、下降时刻各自的的速度、加速度幅值）
-
+    // ===== STATE_RISING: 最大力矩加速直到旋转增量达到 alpha =====
     if (hit_state == STATE_RISING) {
-            Platform_Set_OutputState(Platform_fast);
-            // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
-            // -----------------------------------------------------------------------------
-            // ===== 开环加速检测：距顶点较远时直接输出最大扭矩 =====
-            if (Platform_Check_OpenLoop_Boost(l_traj_z, PLATFORM_Z_MAX)) {
-                // 开环加速中：更新轨迹位置（用于状态跟踪），但扭矩已由开环函数输出
-                l_traj_z += l_traj_v * dt + 0.5f * z_profile.a_up_max * dt * dt; // 估算位置
-                l_traj_v += 0.5 * z_profile.a_up_max * dt; // 估算速度
-                // if (l_traj_z > PLATFORM_Z_MAX - boost_cfg.pid_switch_dist) {
-                //     l_traj_z = PLATFORM_Z_MAX - boost_cfg.pid_switch_dist; // 限幅
-                // }
-                // 角度仍按平滑推进
-                AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
-                                  REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-                                  REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
-                WriteTargetFromState();
-                return; // 直接返回，不执行后续PID控制
-            }
-            // ===== 接近顶点：使用PID减速控制 =====
-            // -----------------------------------------------------------------------------
+        float ang_f = Platform->fdb.front_pitch_angle-JIEFA_FRONT_OFFSET;
+        float ang_l = Platform->fdb.left_pitch_angle;
+        float ang_r = Platform->fdb.right_pitch_angle;
 
-            
-            // 高度推进
-            int reached_up_z = Traj_Update(PLATFORM_Z_MAX, dt, v_set_up, a_limit_up,
-                                           &l_traj_z, &l_traj_v,
-                                           Initial_Z_Position, PLATFORM_Z_MAX,
-                                           z_near_zero, 1);
-            // 角度推进（速度/加速度受限）、写入目标
-            AngleSmoothUpdate(dt, hit_pitch_goal, hit_roll_goal,
-                              REMOTE_PITCH_V_MAX, REMOTE_PITCH_A_MAX,
-                              REMOTE_ROLL_V_MAX,  REMOTE_ROLL_A_MAX);
-            WriteTargetFromState();
+        // 用三电机平均旋转增量（相对起始位置）判断是否达到阈值
+        float delta_f = ang_f - jiefa_start_angle[0];
+        float delta_l = ang_l - jiefa_start_angle[1];
+        float delta_r = ang_r - jiefa_start_angle[2];
+        float avg_delta = (delta_f + delta_l + delta_r) / 3.0f;
 
-            // 上顶误差与刹车判据：进入制动距离后使速度指令为零以线性刹停
-            float e_top = PLATFORM_Z_MAX - l_traj_z;
-            // 满足 Z 到顶/接近/速度近零/进入刹车段 → 切换到回落（避免等待角度导致卡死）
-            if (reached_up_z && (fabsf(e_top) <= z_near_zero) && (fabsf(l_traj_v) <= v_near_zero) ) {
-                hit_state = STATE_BRAKING;
-            }
-    } else if (hit_state == STATE_BRAKING) {
+        if (avg_delta >= JIEFA_ALPHA_TARGET) {
+            // 锁定当前绝对角度作为刹车目标
+            jiefa_alpha[0] = ang_f+2.0f;
+            jiefa_alpha[1] = ang_l+2.0f;
+            jiefa_alpha[2] = ang_r+2.0f;
+            PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch1_Spd_PID);
+            PID_ClearPID(&Platform->pid.Pitch2_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch2_Spd_PID);
+            PID_ClearPID(&Platform->pid.Pitch3_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch3_Spd_PID);
+            hit_state = STATE_BRAKING;
+        } else {
+            // 三电机平衡补偿后直接输出最大力矩
+            float deadzone = 3.0f; // 误差死区，避免过度补偿导致震荡
+            float comp_gain = 5.0f; // 补偿增益，调整补偿力度（过大可能震荡，过小可能不够）
+            float ang_avg = (ang_f + ang_l + ang_r) / 3.0f;
+            float diff_f = ang_avg - ang_f;
+            float diff_l = ang_avg - ang_l;
+            float diff_r = ang_avg - ang_r;
 
-            static uint8_t braking_initialized = 0;
-            static float brake_ang1, brake_ang2, brake_ang3;
-            
-            if (!braking_initialized) {
+            if (fabsf(diff_f) < deadzone) diff_f = 0;
+            else diff_f = (diff_f > 0) ? (diff_f - deadzone) : (diff_f + deadzone);
+            if (fabsf(diff_l) < deadzone) diff_l = 0;
+            else diff_l = (diff_l > 0) ? (diff_l - deadzone) : (diff_l + deadzone);
+            if (fabsf(diff_r) < deadzone) diff_r = 0;
+            else diff_r = (diff_r > 0) ? (diff_r - deadzone) : (diff_r + deadzone);
 
-                l_traj_z = PLATFORM_Z_MAX - 0.1f;
-                l_traj_v = 0.0f;
-                WriteTargetFromState();
+            float t_f = JIEFA_TORQUE + diff_f * comp_gain;
+            float t_l = JIEFA_TORQUE + diff_l * comp_gain;
+            float t_r = JIEFA_TORQUE + diff_r * comp_gain;
 
-                // 【新增】锁存当前电机反馈角度作为刹车目标
-                brake_ang1 = Platform->fdb.front_pitch_angle;
-                brake_ang2 = Platform->fdb.left_pitch_angle;
-                brake_ang3 = Platform->fdb.right_pitch_angle;
-                
-                // 清零所有PID积分状态
+            LimitMaxMin(t_f, JIEFA_MAX_TORQUE, -JIEFA_MAX_TORQUE);
+            LimitMaxMin(t_l, JIEFA_MAX_TORQUE, -JIEFA_MAX_TORQUE);
+            LimitMaxMin(t_r, JIEFA_MAX_TORQUE, -JIEFA_MAX_TORQUE);
+
+            Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, t_f);
+            Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1,  t_l);
+            Motor_SetMotorOutput(&Motor_Pitch_Right_Motor_A1, t_r);
+        }
+    }
+
+    // ===== STATE_BRAKING: PID fast 刹车到锁定角度（稳定后保持 1s 再返回）=====
+    if (hit_state == STATE_BRAKING) {
+        Platform_Set_OutputState(Platform_fast);
+        float ang_err[3], spd[3];
+
+        ang_err[0] = fabsf(Platform->fdb.front_pitch_angle - jiefa_alpha[0]);
+        ang_err[1] = fabsf(Platform->fdb.left_pitch_angle  - jiefa_alpha[1]);
+        ang_err[2] = fabsf(Platform->fdb.right_pitch_angle - jiefa_alpha[2]);
+        spd[0] = fabsf(Motor_Pitch_Front_Motor_A1.encoder.speed);
+        spd[1] = fabsf(Motor_Pitch_Left_Motor_A1.encoder.speed);
+        spd[2] = fabsf(Motor_Pitch_Right_Motor_A1.encoder.speed);
+
+        uint8_t converged = (ang_err[0] < JIEFA_BRAKE_ANG_TOL && ang_err[1] < JIEFA_BRAKE_ANG_TOL && ang_err[2] < JIEFA_BRAKE_ANG_TOL &&
+                             spd[0] < JIEFA_BRAKE_SPD_TOL && spd[1] < JIEFA_BRAKE_SPD_TOL && spd[2] < JIEFA_BRAKE_SPD_TOL);
+
+        static float jiefa_stable_time = 0;
+        if (!converged) {
+            jiefa_stable_time = 0;
+						Platform_Set_Angle_Output(jiefa_alpha[0], jiefa_alpha[1], jiefa_alpha[2], 0, 120, 240);
+
+        } else {
+            if (jiefa_stable_time == 0) jiefa_stable_time = now;
+            if (now - jiefa_stable_time >= 1.0f) {
+                jiefa_stable_time = 0;
+                Platform_Set_Target_Pos(0, 0, Initial_Z_Position, 0, 0, 0);
                 PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
                 PID_ClearPID(&Platform->pid.Pitch1_Spd_PID);
                 PID_ClearPID(&Platform->pid.Pitch2_Ang_PID);
                 PID_ClearPID(&Platform->pid.Pitch2_Spd_PID);
                 PID_ClearPID(&Platform->pid.Pitch3_Ang_PID);
                 PID_ClearPID(&Platform->pid.Pitch3_Spd_PID);
-                
-                // 【关键】清零后立刻设置ref为当前反馈（误差=0）
-                PID_SetPIDRef(&Platform->pid.Pitch1_Ang_PID, brake_ang1);
-                PID_SetPIDRef(&Platform->pid.Pitch2_Ang_PID, brake_ang2);
-                PID_SetPIDRef(&Platform->pid.Pitch3_Ang_PID, brake_ang3);
-                
-                Platform_Set_OutputState(Platform_fast);
-                braking_initialized = 1;
-            }
-            
-            // 【关键2】保持当前位置不动,等待速度衰减
-            Platform_Set_Angle_Output(brake_ang1, brake_ang2, brake_ang3, 0, 120, 240);
-            
-            // 【关键3】监控三个电机速度,全部低于阈值后切换
-            float spd1 = Motor_Pitch_Front_Motor_A1.encoder.speed;
-            float spd2 = Motor_Pitch_Left_Motor_A1.encoder.speed;
-            float spd3 = Motor_Pitch_Right_Motor_A1.encoder.speed;
-            
-            static float brake_stable_start_time = 0.0f;  // 新增：记录速度首次达标的时间
-            #define BRAKE_STABLE_DURATION 0.8f  // 需要维持低速状态的时间（秒）
-
-            // 检查速度是否满足条件
-            if (fabsf(spd1) < 2.0f && fabsf(spd2) < 2.0f && fabsf(spd3) < 2.0f) {
-                // 速度满足低速条件
-                if (brake_stable_start_time == 0.0f) {
-                    // 首次满足条件，记录时间戳
-                    brake_stable_start_time = DWT_GetTimeline_s();
-                } else {
-                    // 已在计时，检查是否持续足够时间
-                    float elapsed = DWT_GetTimeline_s() - brake_stable_start_time;
-                    if (elapsed >= BRAKE_STABLE_DURATION) {
-                        // 已持续1秒，可以切换状态
-                        pitch_traj_v = 0.0f;
-                        roll_traj_v = 0.0f;
-                        brake_stable_start_time = 0.0f;  // 重置计时器
-                        braking_initialized = 0;
-                        hit_state = STATE_RETURNING;
-                    }
-                    // 否则继续等待
-                }
+                hit_state = STATE_RETURNING;
             } else {
-                // 速度不满足条件（又加速了），重置计时器
-                brake_stable_start_time = 0.0f;
-            }
-    } else if ( hit_state == STATE_RETURNING) {
-            Platform_Reset_OpenLoop_Boost(); // 重置开环加速状态
-            Platform_Set_OutputState(Platform_slow);  
-            // l_traj_z = PLATFORM_Z_MAX-0.05f;
-
-            // Z 回落推进（加速度受限 + 下降提前刹车在 Traj_Update 内部实现）
-            (void)Traj_Update(Initial_Z_Position, dt, v_set_down, a_limit_dn,
-                              &l_traj_z, &l_traj_v,
-                              Initial_Z_Position, PLATFORM_Z_MAX,
-                              z_near_zero, 1);
-            // 角度回落推进（按 ret_ratio 缩放的速度/加速度）
-            AngleSmoothUpdate(dt, 0.0f, 0.0f,
-                              REMOTE_PITCH_V_MAX * z_profile.ret_ratio, REMOTE_PITCH_A_MAX * z_profile.ret_ratio,
-                              REMOTE_ROLL_V_MAX  * z_profile.ret_ratio, REMOTE_ROLL_A_MAX  * z_profile.ret_ratio);
-            WriteTargetFromState();
-                
-            // 高度回落完成：位置接近初始且速度近零
-            int reached_dn_z = (fabsf(Initial_Z_Position - l_traj_z) <= z_near_zero) && (fabsf(l_traj_v) <= v_near_zero);
-            // 角度回落完成：接近 0 度或角速度近零
-            int pitch_back = (fabsf(Platform->tar.plat_pitch) <= ang_near_zero) && (fabsf(pitch_traj_v) <= w_near_zero);
-            int roll_back  = (fabsf(Platform->tar.plat_roll)  <= ang_near_zero) && (fabsf(roll_traj_v)  <= w_near_zero);
-
-            // 三项均满足 → 标记击球完成，进入冷却
-            if (reached_dn_z && pitch_back && roll_back) {
-                start_back_time = DWT_GetTimeline_s();
-                finishhit = 1;
-                hit_state = STATE_COOLDOWN;
-            }
-    } else{
-        // 最上层的冷却状态：保持初始位置，等待下一次击打指令
-        cooldown_elapsed = DWT_GetTimeline_s() - start_back_time;
-        int trigger = (hit > 0.8f && hit < 1.2f);
-        if (hit_state == STATE_COOLDOWN) {
-            if (cooldown_elapsed >= 2.0f && trigger) {
-                Platform_Set_OutputState(Platform_slow);
-                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                l_traj_v = 0.0f;
-                l_traj_z = Initial_Z_Position;
-                pitch_traj_v = 0.0f;
-                roll_traj_v  = 0.0f;
-                finishhit = 0;
-                hit_state = STATE_RISING;
-            } else {
-                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                Platform_Set_OutputState(Platform_slow);
-                // hit_state = STATE_IDLE;
-            }
-        } else {
-            if (trigger && cooldown_elapsed >= 2.0f) {
-                Platform_Set_OutputState(Platform_slow);
-                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                l_traj_v = 0.0f;
-                l_traj_z = Initial_Z_Position;
-                pitch_traj_v = 0.0f;
-                roll_traj_v  = 0.0f;
-                finishhit = 0;
-                hit_state = STATE_RISING;
-            } else {
-                Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-                Platform_Set_OutputState(Platform_slow);
-                hit_state = STATE_IDLE;
-            }
+                Platform_Set_Angle_Output(jiefa_alpha[0], jiefa_alpha[1], jiefa_alpha[2], 0, 120, 240);
+						}
         }
     }
-};
+
+    // ===== STATE_RETURNING: PID slow 返回 Initpose 位置 =====
+    if (hit_state == STATE_RETURNING) {
+        Platform_Set_OutputState(Platform_slow);
+        float spd[3];
+        spd[0] = fabsf(Motor_Pitch_Front_Motor_A1.encoder.speed);
+        spd[1] = fabsf(Motor_Pitch_Left_Motor_A1.encoder.speed);
+        spd[2] = fabsf(Motor_Pitch_Right_Motor_A1.encoder.speed);
+
+        if (spd[0] < JIEFA_RETURN_SPD_TOL && spd[1] < JIEFA_RETURN_SPD_TOL && spd[2] < JIEFA_RETURN_SPD_TOL) {
+            hit_state = STATE_IDLE;
+            Platform_Set_OutputState(Platform_slow);
+        } else {
+            Platform_Cal_3Degree_IK_Output();
+        }
+    }
+}
 
 // 颠球调度函数（传入distance，且时间参数如 0.8s 和轨迹参数如 +=0.05 不同）
 void Platform_Dianqiu_Cal(float hit, uint8_t distance) {
-	// Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
-	// if (finishhit == 0 ){
-	// 	if(DWT_GetTimeline_s() - start_hit_time  <= 0.8f) {
-	// 		switch (distance){		
-	// 			case Remote_SWITCH_UP://jin
-	// 				l_tar +=0.05;
-	// 				LimitMax (l_tar,0.3f);
-	// 				Platform_Set_Target_Pos(0,0,l_tar,-15.0f,0,0);
-	// 				Platform_Set_OutputState(Platform_middle); 
-	// 				break ;
-	// 		    case Remote_SWITCH_MIDDLE:
-	// 				l_tar +=0.05;
-	// 				LimitMax (l_tar,0.3f);
-	// 				Platform_Set_Target_Pos(0,0,l_tar,0,0,0);
-	// 				Platform_Set_OutputState(Platform_middle); 
-	// 			  	break ;
-	// 		  	case Remote_SWITCH_DOWN://yuan
-	// 				l_tar +=0.05;
-	// 				LimitMax (l_tar,0.3f);
-	// 				Platform_Set_Target_Pos(0,0,l_tar,0,0,0);
-	// 				Platform_Set_OutputState(Platform_fast); 
-	// 			  	break;
-	// 	 	}
-	// 	} else {
-	// 		Platform_Set_OutputState(Platform_slow);	
-	// 		Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
-	// 	  	start_back_time = DWT_GetTimeline_s();	
-	// 	  	finishhit = 1;	
-	//   }
- 	// } else if (finishhit == 1) {
-	// 	if(DWT_GetTimeline_s() - start_back_time <= 1.0f) { // 从返回到现在是否未超过1.5秒，保持“冷却状态”
-	// 		Platform_Set_OutputState(Platform_slow);
-	// 	} else {
-	// 	  	if((int)hit == 1) {
-	// 	  		// 确保平台在初始位置
-	// 		  	Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
-	// 	    	Platform_Set_OutputState(Platform_middle);
-	// 			start_hit_time = DWT_GetTimeline_s();
-	// 			finishhit = 0;
-	// 		} else if((int)hit != 1) {
-	// 			Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
-	// 		  	Platform_Set_OutputState(Platform_middle);
-	// 		}
-	//   	}
-	// }	
+	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+	if (finishhit == 0 ){
+		if(DWT_GetTimeline_s() - start_hit_time  <= 0.8f) {
+			switch (distance){		
+				case Remote_SWITCH_UP://老的PID驱动模式
+					l_traj_z +=0.05;
+					LimitMax (l_traj_z,0.3f);
+					Platform_Set_Target_Pos(0,0,l_traj_z,-10.0f,0,0);
+					Platform_Set_OutputState(Platform_middle); 
+					break ;
+			    case Remote_SWITCH_MIDDLE:
+					l_traj_z +=0.05;
+					LimitMax (l_traj_z,0.3f);
+					Platform_Set_Target_Pos(0,0,l_traj_z,0,0,0);
+					Platform_Set_OutputState(Platform_fast); 
+				  	break ;
+			  	case Remote_SWITCH_DOWN://yuan
+					l_traj_z +=0.05;
+					LimitMax (l_traj_z,0.3f);
+					Platform_Set_Target_Pos(0,0,l_traj_z,0,0,0);
+					Platform_Set_OutputState(Platform_fast); 
+				  	break;
+		 	}
+		} else {
+			Platform_Set_OutputState(Platform_slow);	
+			Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+		  	start_back_time = DWT_GetTimeline_s();	
+		  	finishhit = 1;	
+	  }
+ 	} else if (finishhit == 1) {
+		if(DWT_GetTimeline_s() - start_back_time <= 1.0f) { // 从返回到现在是否未超过1.5秒，保持“冷却状态”
+			Platform_Set_OutputState(Platform_slow);
+		} else {
+		  	if((int)hit == 1) {
+		  		// 确保平台在初始位置
+			  	Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+		    	Platform_Set_OutputState(Platform_middle);
+				start_hit_time = DWT_GetTimeline_s();
+				finishhit = 0;
+			} else if((int)hit != 1) {
+				Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+			  	Platform_Set_OutputState(Platform_middle);
+			}
+	  	}
+	}	
 };
 
 // 设置控制模式 mode
@@ -1015,17 +1039,10 @@ void Platform_Control() {
 		  	Platform_Cal_3Degree_IK_Output();
       		break;
 		case Platform_Jiefa:
-
-            // // 想要回退回到正常的击打逻辑中，注释这个区间中的代码即可
-            // // -----------------------------------------------------------------------------
-            // 开环加速阶段：避免IK+PID覆盖开环满扭矩输出
-            if (boost_cfg.enabled && boost_cfg.in_openloop) {
-                Platform_OpenLoop_Boost_Output(1);
-                break;
+            // hit_state 活跃时 Platform_Jiefa_Cal 已直接处理，IDLE 时走正常 IK 路径
+            if (hit_state == STATE_IDLE) {
+                Platform_Cal_3Degree_IK_Output();
             }
-            // // ----------------------------------------------------------------------------
-            
-            Platform_Cal_3Degree_IK_Output();
 			break;				
 		case Platform_Chuanqiu:
 			Platform_Set_OutputState(Platform_fast); 
@@ -1057,7 +1074,7 @@ void Platform_Control() {
 // A1电机RS485通信时序：发送34字节命令 + 等待电机处理 + 接收78字节反馈
 // 按4.5Mbps波特率：发送约76us，接收约173us，加上电机处理时间，建议间隔>=500us
 #ifndef PLATFORM_A1_OUTPUT_GAP_US
-#define PLATFORM_A1_OUTPUT_GAP_US 560U  // A1电机发送间隔，需要等待反馈完成
+#define PLATFORM_A1_OUTPUT_GAP_US 500U  // A1电机发送间隔，需要等待反馈完成
 #endif
 
 // 为三个电机发送数据

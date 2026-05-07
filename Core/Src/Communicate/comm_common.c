@@ -115,8 +115,8 @@ void Comm_SendCommData() {
           len += CommCmd_Send[i].bus_func(buscomm->usb_sendBuff + len);
       }
   }
-  buscomm->usb_sendBuff[2] = (uint8_t)(len & 0xff);
-  buscomm->usb_sendBuff[3] = (uint8_t)((len & 0xff00) >> 8);
+  buscomm->usb_sendBuff[2] = 0X12;
+  buscomm->usb_sendBuff[3] = 0X00;
   buscomm->usb_sendBuff[len] = 0X7A;
   buscomm->usb_sendBuff[len + 1 ] = 0XA7;
   // Usb_SendBuff(buscomm->usb_sendBuff, 256);
@@ -126,56 +126,76 @@ void Comm_SendCommData() {
 
 
 // 数据包校验函数
+//static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
+//	
+//    Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
+//    
+// for (uint32_t i = 0; i < rxdatalen - 1; i++) {
+//    if ((buff[0] == 0x5A) && (buff[1] == 0xA5)) {
+//    
+//        memcpy(buscomm->UART_Buff, buff, rxdatalen);
+//        return 1;
+//    }  
+//}
+//        return 0;
+//}
+//    
+//	
+//	if (buff == NULL || rxdatalen < 2U) {
+//    return 0;
+//  }
+
+//  Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
+//  if ((buff[0] != 0x5A) || (buff[1] != 0xA5)) {
+//    return 0;
+//  }
+
+//  if ((buff[rxdatalen - 2] != 0x7A) || (buff[rxdatalen - 1] != 0xA7)) {
+//    return 0;
+//  }
+//  
+//  //if(buff[2] != 0x11)	return 0;
+//  uint16_t frame_len = (uint16_t)(buff[3] | (buff[4] << 8));
+//  if (frame_len != (uint16_t)(rxdatalen)) {
+//    return 0;
+//  }
+
+//  uint32_t copy_len = rxdatalen;
+//#ifdef COMM_RECEIVE_BUFF_LEN
+//  if (copy_len > COMM_RECEIVE_BUFF_LEN) {
+//    copy_len = COMM_RECEIVE_BUFF_LEN;
+//  }
+//#endif
+
+//  if (buscomm != NULL && copy_len > 0U) {
+//    if (buscomm->usb_watchBuff != buff) {
+//      memcpy(buscomm->usb_watchBuff, buff, copy_len);
+//    }
+//  }
+//  return 1;
+//}
 static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
-	/*
+    if (buff == NULL || rxdatalen < 2U) return 0;
+
     Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
     
- 
-    if ((buff[0] == 0x5A) && (buff[1] == 0xA5)) {
+    // 1. 寻找帧头（不再限制 rxdatalen 必须大于 47）
+    for (uint32_t i = 0; i < rxdatalen - 1; i++) { 
+        if (buff[i] == 0x5A && buff[i+1] == 0xA5) {
+            
+            // 2. 如果长度够 47，我们进行严格校验
+            if (i + 47 <= rxdatalen) {
+                if (buff[i + 45] == 0x7A && buff[i + 46] == 0xA7) {
+                    // 只有完全匹配才拷贝
+                    memcpy(buscomm->UART_Buff, &buff[i], 47);
+                    return 1;
+                }
+            } 
     
-        memcpy(buscomm->usb_watchBuff, buff, rxdatalen);
-        return 1;
-    }  
-    else {
-        return 0;
+        }
     }
-    */
-	
-	if (buff == NULL || rxdatalen < 2U) {
     return 0;
-  }
-
-  Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
-  if ((buff[0] != 0x5A) || (buff[1] != 0xA5)) {
-    return 0;
-  }
-
-  if ((buff[rxdatalen - 2] != 0x7A) || (buff[rxdatalen - 1] != 0xA7)) {
-    return 0;
-  }
-  
-  //if(buff[2] != 0x11)	return 0;
-  uint16_t frame_len = (uint16_t)(buff[3] | (buff[4] << 8));
-  if (frame_len != (uint16_t)(rxdatalen)) {
-    return 0;
-  }
-
-  uint32_t copy_len = rxdatalen;
-#ifdef COMM_RECEIVE_BUFF_LEN
-  if (copy_len > COMM_RECEIVE_BUFF_LEN) {
-    copy_len = COMM_RECEIVE_BUFF_LEN;
-  }
-#endif
-
-  if (buscomm != NULL && copy_len > 0U) {
-    if (buscomm->usb_watchBuff != buff) {
-      memcpy(buscomm->usb_watchBuff, buff, copy_len);
-    }
-  }
-  return 1;
 }
-
-
 /**
   * @brief      Data decoding function of serial port in inter bus communication
   * @param      buff: Data buffer
@@ -189,7 +209,7 @@ void Comm_DecodeData(uint8_t buff[], uint32_t rxdatalen) {
     return; 
   }
   buscomm->rx_dt = DWT_GetDeltaT(&buscomm->last_rx_tick);
-  uint32_t len = 5;
+  uint32_t len = 4;
 
   for (int i = 0; i < Const_Comm_Receive_BUFF_SIZE; i++) {
     if (CommCmd_Receive[i].bus_func != NULL) {
@@ -197,11 +217,11 @@ void Comm_DecodeData(uint8_t buff[], uint32_t rxdatalen) {
     }
   }
   
-  // 检测hit_time并设置标志
-  uint16_t hit_time = (uint16_t)(buscomm->usb_watchBuff[5] | (buscomm->usb_watchBuff[6] << 8));
-  if (hit_time == 1) {
-    hit_flag = 1;
-  }
+//  // 检测hit_time并设置标志
+//  uint16_t hit_time = (uint16_t)(buscomm->usb_watchBuff[5] | (buscomm->usb_watchBuff[6] << 8));
+//  if (hit_time == 1) {
+//    hit_flag = 1;
+//  }
 }
 
 // CAN 接收回调函数（未使用）
@@ -216,7 +236,7 @@ void Communicate_RXCallback(UART_HandleTypeDef* huart) {
   
   comm = Comm_GetBusDataPtr();
   /* clear DMA transfer complete flag */
-  __HAL_DMA_DISABLE(huart->hdmarx);
+  //__HAL_DMA_DISABLE(huart->hdmarx);
 
   /* handle uart data from DMA */
   int rxdatalen = COMM_RECEIVE_BUFF_LEN - Uart_DMACurrentDataCounter(huart->hdmarx->Instance);
@@ -225,8 +245,8 @@ void Communicate_RXCallback(UART_HandleTypeDef* huart) {
   Comm_DecodeData(comm->usb_watchBuff,rxdatalen);
 
   /* restart dma transmission */
-  __HAL_DMA_SET_COUNTER(huart->hdmarx, COMM_RECEIVE_BUFF_LEN);
-  __HAL_DMA_ENABLE(huart->hdmarx);
+//  __HAL_DMA_SET_COUNTER(huart->hdmarx, COMM_RECEIVE_BUFF_LEN);
+//  __HAL_DMA_ENABLE(huart->hdmarx);
 }
 
 

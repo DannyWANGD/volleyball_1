@@ -159,6 +159,7 @@ void Remote_RXCallback(UART_HandleTypeDef* huart) {
     __HAL_DMA_DISABLE(huart->hdmarx);
 
     int rxdatalen = Const_Remote_RX_BUFF_LEN - Uart_DMACurrentDataCounter(huart->hdmarx->Instance);
+		
     
     Remote_DecodeRemoteData(rc->Remote_RxData, rxdatalen);
 

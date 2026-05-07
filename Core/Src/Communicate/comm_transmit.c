@@ -17,7 +17,6 @@
 #include "sys_const.h"
 #include "lib_buff.h"
 #include "periph_remote.h"
-
 #include "module_platform.h"
 #include "app_gimbal.h"
 

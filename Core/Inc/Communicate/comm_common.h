@@ -19,7 +19,7 @@ extern "C" {
 #include "main.h"
 
 #define COMM_SEND_BUFF_LEN  64
-#define COMM_RECEIVE_BUFF_LEN 64
+#define COMM_RECEIVE_BUFF_LEN 128
 
 typedef enum {
     Comm_STATE_NULL      = 0,
@@ -32,6 +32,7 @@ typedef enum {
 
 typedef struct {
     Comm_CommStateEnum state;
+    uint8_t UART_Buff[COMM_RECEIVE_BUFF_LEN]; // receive buffer
 
     uint8_t usb_watchBuff[COMM_RECEIVE_BUFF_LEN]; // receive buffer
     uint8_t usb_sendBuff[COMM_SEND_BUFF_LEN]; // send buffer

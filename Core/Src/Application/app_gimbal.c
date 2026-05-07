@@ -49,7 +49,7 @@ void Gimbal_Init(void)
 	Gimbal.Yaw_fdb = 0.0f;
 	Gimbal.Yaw_ref = 0.0f;
 
-	init_average_filter();
+	//init_average_filter();
 }
 
 void Gimbal_SetPos()
@@ -59,13 +59,14 @@ void Gimbal_SetPos()
 	// As for Pitch, Turn Up is Positive, Turn Down is Negative
 	// Aim to provide better use for human
 	// we overturn the Pitch order, and keep the Yaw order
-	
+	Remote_DataTypeDef *rc = Remote_GetRemotePtr(); 
+
 	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
 	Remote_RemoteDataTypeDef* remote = Remote_GetRemoteDataPtr();
 	
 	if(gimbal_data->gimbal_state == Gimbal_remote) {
-		gimbal_data->Pitch_ref = remote->remote.ch[1] / 660.0f * 45.0f;
-		gimbal_data->Yaw_ref = remote->remote.ch[0] / 660.0f * 90.0f;
+		gimbal_data->Pitch_ref = -(rc->ch[1] / 660.0f * 45.0f);
+		gimbal_data->Yaw_ref = -(rc->ch[0] / 660.0f * 90.0f);
 	}
 	else if(gimbal_data->gimbal_state == Gimbal_auto) {
 		
@@ -79,7 +80,7 @@ void Gimbal_PosLimit(void)
 	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
 	
 	LimitMaxMin(gimbal_data->Yaw_ref, 90, -90);
-	LimitMaxMin(gimbal_data->Pitch_ref, 45, -45);
+	LimitMaxMin(gimbal_data->Pitch_ref, 43, -45);
 	
 }
 
@@ -100,9 +101,22 @@ void Gimbal_PIDCalc(void)
 {
 	Gimbal_TypeDef * gimbal_data = Gimbal_GetPtr();
 		
-	gimbal_data->Yaw_fdb = (gimbal_data->motorGroup->motor_handle[0]->encoder.limited_angle - Const_Gimbal_Yaw_OFFSET)  ;
+	// 1. 获取你原本认为“正确”的反馈
+    float raw_yaw_fdb = (gimbal_data->motorGroup->motor_handle[0]->encoder.consequent_angle - Const_Gimbal_Yaw_OFFSET);
+    
+    // 2. 【核心保险丝】：最短路径误差映射
+    // 这一步能解决：
+    // - round_count 误跳变 360 度
+    // - init_offset 异常导致的 360 度偏移
+    // - 任何导致反馈值瞬间“多出一圈”的软件 Bug
+    float yaw_error = gimbal_data->Yaw_ref - raw_yaw_fdb;
+    
+    while (yaw_error > 180.0f)  yaw_error -= 360.0f;
+    while (yaw_error < -180.0f) yaw_error += 360.0f;
 	
-	gimbal_data->Pitch_fdb = (gimbal_data->motorGroup->motor_handle[1]->encoder.consequent_angle - Const_Gimbal_Pitch_OFFSET);
+	gimbal_data->Yaw_fdb = (gimbal_data->motorGroup->motor_handle[0]->encoder.angle - Const_Gimbal_Yaw_OFFSET)  ;
+	
+	gimbal_data->Pitch_fdb = (gimbal_data->motorGroup->motor_handle[1]->encoder.angle - Const_Gimbal_Pitch_OFFSET);
 
 	PID_SetPIDRef(&gimbal_data->Yaw_Pospid, gimbal_data->Yaw_ref);
 	PID_SetPIDFdb(&gimbal_data->Yaw_Pospid, gimbal_data->Yaw_fdb);
