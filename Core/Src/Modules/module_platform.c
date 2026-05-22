@@ -19,6 +19,7 @@
 #include "periph_remote.h"
  
 Platform_DataTypeDef Platform_Data;
+HitState_t hit_state = STATE_IDLE;
 
 // 前置声明（在初始化与更新入口中使用）
  static inline void Z_ApplyProfileAggressive(void);
@@ -122,6 +123,8 @@ void Platform_Init() {
 	
 	Platform->output_state = Platform_slow;
 	Platform->ctrl_mode = Platform_Initpose;
+    hit_state = STATE_IDLE;
+    Platform->flag = 0;
 	Platform->fdb.front_pitch_angle = 0;
 	Platform->fdb.front_yaw_angle = 0;
 	Platform->fdb.left_pitch_angle = 0;
@@ -215,14 +218,6 @@ void Platform_Init() {
 
 uint16_t watchdog2;
 
-
-
-// 新增：击球位姿控制相关变量
-
-HitState_t hit_state = STATE_IDLE;
-
-
-
 uint8_t output_state;
 uint64_t last_output_time;
 
@@ -234,8 +229,8 @@ void Platform_Update_Fdb() {
 	// 进行坐标系标定，处理零点偏移量
     // A1 电机角度反馈（尝试将 Right 也取反，与 Front/Left 一致）
     Platform->fdb.front_pitch_angle = -58.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
-		Platform->fdb.left_pitch_angle  = -60.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
-  	Platform->fdb.right_pitch_angle = -65.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
+		Platform->fdb.left_pitch_angle  = -63.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
+  	Platform->fdb.right_pitch_angle = -69.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
     Motor_Pitch_Left_Motor_A1.watchdog += 1;
@@ -407,9 +402,9 @@ void Platform_Set_Angle_Output(float ang1,float ang2 ,float ang3,float ang4,floa
 	
   	Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 	
-	LimitMaxMin(ang1,28.0f,-30.0f);
-	LimitMaxMin(ang2,28.0f,-30.0f);
-	LimitMaxMin(ang3,28.0f,-30.0f);
+	LimitMaxMin(ang1,50.0f,-30.0f);
+	LimitMaxMin(ang2,30.0f,-30.0f);
+	LimitMaxMin(ang3,30.0f,-30.0f);
 	LimitMaxMin(ang4,30.0f,-30.0f);
 	LimitMaxMin(ang5,150.0f,90.0f);
 	LimitMaxMin(ang6,270.0f,210.0f);
@@ -612,7 +607,7 @@ void Platform_Set_Target_Pos(float x,float y,float z,float pitch,float yaw,float
 	LimitMaxMin(Platform->tar.plat_x,0.1f,-0.1f);
 	LimitMaxMin(Platform->tar.plat_y,0.1f,-0.1f);
 	LimitMaxMin(Platform->tar.plat_z,PLATFORM_Z_MAX,Initial_Z_Position);
-	LimitMaxMin(Platform->tar.plat_pitch,10,-30);
+	LimitMaxMin(Platform->tar.plat_pitch,10,-40);
 	LimitMaxMin(Platform->tar.plat_yaw,30,-30);
 	LimitMaxMin(Platform->tar.plat_roll,20,-20);
 
@@ -695,6 +690,11 @@ static const float w_near_zero   = 3.0f;        // 认为角速度 w 收敛的�
 float start_hit_time = 0.0f;                    //击球动作开始（工具）
 float start_back_time = 0.0f;                   //击球动作回拉开始（工具）
 uint8_t finishhit = 1;                          //击球动作的状态标志，0为击球中，1为击打已完成
+static uint8_t  dianqiu_mid_active = 0;          // MIDDLE 模式直接角度控制标志
+static float    dianqiu_mid_target[3] = {0};     // MIDDLE 模式三电机目标角度
+static uint8_t  dianqiu_down_active = 0;         // DOWN 模式比例同步标志
+static float    dianqiu_down_start[3] = {0};     // DOWN 模式三电机起始角度
+static float    dianqiu_down_target[3] = {0};    // DOWN 模式三电机目标角度
 
 
 
@@ -819,36 +819,64 @@ float cooldown_elapsed;
 
 // Jiefa 击球状态机参数
 #define JIEFA_MAX_TORQUE      33.0f   // 加速阶段最大力矩 (Nm)
-#define JIEFA_TORQUE      18.0     // 期望的初始力矩
-#define JIEFA_ALPHA_TARGET    35.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
-#define JIEFA_BRAKE_ANG_TOL   1.0f    // 刹车角度容差 (度)
+#define JIEFA_TORQUE      20.0     // 期望的初始力矩
+#define JIEFA_ALPHA_TARGET    42.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
+#define JIEFA_BRAKE_ANG_TOL   2.0f    // 刹车角度容差 (度)
 #define JIEFA_BRAKE_SPD_TOL   2.0f    // 刹车速度容差 (rad/s)
-#define JIEFA_RETURN_SPD_TOL  1.0f    // 返回阶段速度容差 (rad/s)
-#define JIEFA_COOLDOWN_S      2.5f    // 两次击球最小间隔 (秒)
+#define JIEFA_RETURN_SPD_TOL  2.0f    // 返回阶段速度容差 (rad/s)
+#define JIEFA_COOLDOWN_S      2.0f    // 两次击球最小间隔 (秒)
 #define JIEFA_FRONT_OFFSET    0.0f    // 前侧电机补偿角
+
+//#define JIEFA_TORQUE      18.0     // 期望的初始力矩
+//#define JIEFA_ALPHA_TARGET    35.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
+
+// Dianqiu DOWN 模式：三电机比例同步参数
+#define DIANQIU_DOWN_FRONT_DEG  80.0f  // Front 电机目标旋转角度 (°)
+#define DIANQIU_DOWN_LEFT_DEG   35.0f  // Left  电机目标旋转角度 (°)
+#define DIANQIU_DOWN_RIGHT_DEG  35.0f  // Right 电机目标旋转角度 (°)
 
 static float jiefa_start_angle[3] = {0};  // 击球起始角度（绝对）
 static float jiefa_alpha[3] = {0};        // 刹车锁定角度（绝对）
 static float jiefa_last_trigger = -10.0f; // 上次触发时刻
-
+float keep_state_flag = 0.0f;
 
 void Platform_Jiefa_Cal(float hit) {
 
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
 
-    // 仅 hit == 1.0f 时触发
-    if (hit != 1.0f) return;
+    // 修复1：不再盲目 return。
+    // 如果已经在打击动作中（非 IDLE），即使 hit 不是 1.0f 也必须继续执行状态机直到动作闭环完成
+    if (hit_state == STATE_IDLE && hit != 1.0f) {
+        return;
+    }
 
     float now = DWT_GetTimeline_s();
 
     // ===== STATE_IDLE: 等待触发（含 2s 冷却）=====
     if (hit_state == STATE_IDLE) {
+        Platform->flag = 0.0f; // 收到指令立马消费，阻断连发
+
         if (now - jiefa_last_trigger < JIEFA_COOLDOWN_S) return;
         jiefa_last_trigger = now;
+
+        static uint8_t is_start_angle_recorded = 0;
+
         // 记录击球起始的绝对角度
-        jiefa_start_angle[0] = Platform->fdb.front_pitch_angle;
-        jiefa_start_angle[1] = Platform->fdb.left_pitch_angle;
-        jiefa_start_angle[2] = Platform->fdb.right_pitch_angle;
+        if (is_start_angle_recorded == 0) {
+            jiefa_start_angle[0] = Platform->fdb.front_pitch_angle;
+            jiefa_start_angle[1] = Platform->fdb.left_pitch_angle;
+            jiefa_start_angle[2] = Platform->fdb.right_pitch_angle;
+            is_start_angle_recorded = 1;
+        }
+
+        // // 判断：只有当三个起步角度的绝对值都小于阈值（例如安全范围5.0度）时，才允许进入击打状态
+        // if (fabsf(jiefa_start_angle[0]) < 5.0f && 
+        //     fabsf(jiefa_start_angle[1]) < 5.0f && 
+        //     fabsf(jiefa_start_angle[2]) < 5.0f) {
+            
+        //     hit_state = STATE_RISING;
+        //     Platform_Set_OutputState(Platform_fast);
+        // }
         hit_state = STATE_RISING;
         Platform_Set_OutputState(Platform_fast);
     }
@@ -867,9 +895,9 @@ void Platform_Jiefa_Cal(float hit) {
 
         if (avg_delta >= JIEFA_ALPHA_TARGET) {
             // 锁定当前绝对角度作为刹车目标
-            jiefa_alpha[0] = ang_f+2.0f;
-            jiefa_alpha[1] = ang_l+2.0f;
-            jiefa_alpha[2] = ang_r+2.0f;
+            jiefa_alpha[0] = ang_f-5.0f;
+            jiefa_alpha[1] = ang_l-5.0f;
+            jiefa_alpha[2] = ang_r-5.0f;
             PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
             PID_ClearPID(&Platform->pid.Pitch1_Spd_PID);
             PID_ClearPID(&Platform->pid.Pitch2_Ang_PID);
@@ -929,7 +957,7 @@ void Platform_Jiefa_Cal(float hit) {
 
         } else {
             if (jiefa_stable_time == 0) jiefa_stable_time = now;
-            if (now - jiefa_stable_time >= 1.0f) {
+            if (now - jiefa_stable_time >= 1.0f && keep_state_flag == 0.0f) {
                 jiefa_stable_time = 0;
                 Platform_Set_Target_Pos(0, 0, Initial_Z_Position, 0, 0, 0);
                 PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
@@ -939,6 +967,7 @@ void Platform_Jiefa_Cal(float hit) {
                 PID_ClearPID(&Platform->pid.Pitch3_Ang_PID);
                 PID_ClearPID(&Platform->pid.Pitch3_Spd_PID);
                 hit_state = STATE_RETURNING;
+
             } else {
                 Platform_Set_Angle_Output(jiefa_alpha[0], jiefa_alpha[1], jiefa_alpha[2], 0, 120, 240);
 						}
@@ -953,11 +982,15 @@ void Platform_Jiefa_Cal(float hit) {
         spd[1] = fabsf(Motor_Pitch_Left_Motor_A1.encoder.speed);
         spd[2] = fabsf(Motor_Pitch_Right_Motor_A1.encoder.speed);
 
-        if (spd[0] < JIEFA_RETURN_SPD_TOL && spd[1] < JIEFA_RETURN_SPD_TOL && spd[2] < JIEFA_RETURN_SPD_TOL) {
+        if (spd[0] < JIEFA_RETURN_SPD_TOL && spd[1] < JIEFA_RETURN_SPD_TOL && spd[2] < JIEFA_RETURN_SPD_TOL
+						&& fabsf(Platform->fdb.front_pitch_angle - jiefa_start_angle[0]) < 2.0f
+						&& fabsf(Platform->fdb.left_pitch_angle  - jiefa_start_angle[1]) < 2.0f
+						&& fabsf(Platform->fdb.right_pitch_angle - jiefa_start_angle[2]) < 2.0f) {
             hit_state = STATE_IDLE;
             Platform_Set_OutputState(Platform_slow);
         } else {
             Platform_Cal_3Degree_IK_Output();
+            keep_state_flag = 0.0f;
         }
     }
 }
@@ -969,29 +1002,67 @@ void Platform_Dianqiu_Cal(float hit, uint8_t distance) {
 		if(DWT_GetTimeline_s() - start_hit_time  <= 0.8f) {
 			switch (distance){		
 				case Remote_SWITCH_UP://老的PID驱动模式
-					l_traj_z +=0.05;
+					dianqiu_mid_active = 0;
+                    dianqiu_down_active = 0;
+					l_traj_z +=0.30f;
 					LimitMax (l_traj_z,0.3f);
-					Platform_Set_Target_Pos(0,0,l_traj_z,-10.0f,0,0);
-					Platform_Set_OutputState(Platform_middle); 
+					Platform_Set_Target_Pos(0,0,l_traj_z,-30.0f,0,0);
+					Platform_Set_OutputState(Platform_fast);
 					break ;
 			    case Remote_SWITCH_MIDDLE:
-					l_traj_z +=0.05;
-					LimitMax (l_traj_z,0.3f);
-					Platform_Set_Target_Pos(0,0,l_traj_z,0,0,0);
-					Platform_Set_OutputState(Platform_fast); 
+			    	// 首次进入时捕获三电机当前角度，之后每帧用双环 PID 驱动到各自目标
+			    	if (!dianqiu_mid_active) {
+			    		dianqiu_mid_target[0] = Platform->fdb.front_pitch_angle + 80.0f;
+			    		dianqiu_mid_target[1] = Platform->fdb.left_pitch_angle  + 40.0f;
+			    		dianqiu_mid_target[2] = Platform->fdb.right_pitch_angle + 40.0f;
+			    		dianqiu_mid_active = 1;
+			    	}
+			    	Platform_Set_OutputState(Platform_fast);
+			    	Platform_Set_Angle_Output(dianqiu_mid_target[0], dianqiu_mid_target[1], dianqiu_mid_target[2], 0, 120, 240);
 				  	break ;
-			  	case Remote_SWITCH_DOWN://yuan
-					l_traj_z +=0.05;
-					LimitMax (l_traj_z,0.3f);
-					Platform_Set_Target_Pos(0,0,l_traj_z,0,0,0);
-					Platform_Set_OutputState(Platform_fast); 
+			  	case Remote_SWITCH_DOWN:
+			  		if (!dianqiu_down_active) {
+			  			dianqiu_down_start[0]  = Platform->fdb.front_pitch_angle;
+			  			dianqiu_down_start[1]  = Platform->fdb.left_pitch_angle;
+			  			dianqiu_down_start[2]  = Platform->fdb.right_pitch_angle;
+			  			dianqiu_down_target[0] = dianqiu_down_start[0] + DIANQIU_DOWN_FRONT_DEG;
+			  			dianqiu_down_target[1] = dianqiu_down_start[1] + DIANQIU_DOWN_LEFT_DEG;
+			  			dianqiu_down_target[2] = dianqiu_down_start[2] + DIANQIU_DOWN_RIGHT_DEG;
+			  			dianqiu_down_active = 1;
+			  		}
+			  		{
+			  			float cur[3] = {Platform->fdb.front_pitch_angle, Platform->fdb.left_pitch_angle, Platform->fdb.right_pitch_angle};
+			  			float progress[3], fastest = 0.0f;
+			  			for (int i = 0; i < 3; i++) {
+			  				float range = dianqiu_down_target[i] - dianqiu_down_start[i];
+			  				if (fabsf(range) > 0.01f) {
+			  					progress[i] = (cur[i] - dianqiu_down_start[i]) / range;
+			  					if (progress[i] < 0.0f) progress[i] = 0.0f;
+			  					if (progress[i] > 1.0f) progress[i] = 1.0f;
+			  				} else progress[i] = 1.0f;
+			  				if (progress[i] > fastest) fastest = progress[i]; // 选取最快的进度作为整体进度，确保三电机同步完成动作
+			  			}
+			  			float ref[3];
+                        for (int i = 0; i < 3; i++) {
+                            // 自己的完整目标（保底，不会停在起点）
+                            float own_ref = dianqiu_down_target[i];
+                            // 按最快进度算出的同步参考（助推慢电机）
+                            float push_ref = dianqiu_down_start[i] + fastest * (dianqiu_down_target[i] - dianqiu_down_start[i]);
+                            // 取更远的那个：快电机用自己的目标，慢电机被推到前面
+                            ref[i] = (push_ref > own_ref) ? push_ref : own_ref;
+                        }
+			  			Platform_Set_OutputState(Platform_fast);
+			  			Platform_Set_Angle_Output(ref[0], ref[1], ref[2], 0, 120, 240);
+			  		}
 				  	break;
 		 	}
 		} else {
-			Platform_Set_OutputState(Platform_slow);	
-			Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
-		  	start_back_time = DWT_GetTimeline_s();	
-		  	finishhit = 1;	
+			dianqiu_mid_active = 0;
+            dianqiu_down_active = 0;
+			Platform_Set_OutputState(Platform_slow);
+			Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
+		  	start_back_time = DWT_GetTimeline_s();
+		  	finishhit = 1;
 	  }
  	} else if (finishhit == 1) {
 		if(DWT_GetTimeline_s() - start_back_time <= 1.0f) { // 从返回到现在是否未超过1.5秒，保持“冷却状态”
@@ -999,12 +1070,12 @@ void Platform_Dianqiu_Cal(float hit, uint8_t distance) {
 		} else {
 		  	if((int)hit == 1) {
 		  		// 确保平台在初始位置
-			  	Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+			  	Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
 		    	Platform_Set_OutputState(Platform_middle);
 				start_hit_time = DWT_GetTimeline_s();
 				finishhit = 0;
 			} else if((int)hit != 1) {
-				Platform_Set_Target_Pos(0,0,0.13f,0,0,0);
+				Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
 			  	Platform_Set_OutputState(Platform_middle);
 			}
 	  	}
@@ -1036,10 +1107,16 @@ void Platform_Control() {
 		case Platform_Test:
 			break;
 		case Platform_Dianqiu:
-		  	Platform_Cal_3Degree_IK_Output();
+            if (!dianqiu_mid_active && !dianqiu_down_active) {
+		  	    Platform_Cal_3Degree_IK_Output();
+            }
       		break;
 		case Platform_Jiefa:
-            // hit_state 活跃时 Platform_Jiefa_Cal 已直接处理，IDLE 时走正常 IK 路径
+            // 修复2：平台主控制循环应主动调用状态机，防止未下发 hit 标志时底盘失控
+            // 这里将 Jiefa 的结算放生在 Platform_Task 中，使其以稳定的频率运行输出计算
+            Platform_Jiefa_Cal(Platform->flag);
+
+            // 如果状态机目前是空闲的，说明不需要纯力矩/锁死计算，通过 IK 保持位置
             if (hit_state == STATE_IDLE) {
                 Platform_Cal_3Degree_IK_Output();
             }

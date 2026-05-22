@@ -106,6 +106,10 @@ static uint32_t _set_Platform_Data_(uint8_t *buff) {
 
   if (Platform->ctrl_mode == Platform_Jiefa && hit_state == STATE_IDLE) {
 	  Platform->flag = buff2float(&buscomm->UART_Buff[41]);
+    float pc_cmd = buff2float(&buscomm->UART_Buff[41]);
+    if (pc_cmd == 1.0f) {
+      Platform->flag = 1.0f; // 如果上位机下达击打命令，置1
+    }
   }
 
 

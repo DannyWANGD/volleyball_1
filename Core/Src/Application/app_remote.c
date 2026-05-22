@@ -19,6 +19,8 @@
 #include "module_chassis.h"
 #include "comm_receive.h"
 
+extern float keep_state_flag;
+
 Remote_RemoteControlTypeDef Remote_remoteControlData;
 
 /**
@@ -124,21 +126,21 @@ void Remote_RemoteProcess() {
 	Gimbal_TypeDef *gimbal = Gimbal_GetPtr();
 	
 	switch (rc->s[3]) {
-		case Lever_up: {
+		case Lever_down: {
 			Platform_Set_ControlMode(Platform_Jiefa);	
+			keep_state_flag = 0.0f;
 			Chassis_SetControlMode(Chassis_PC);
 			Gimbal_StateSet(Gimbal_auto);
-			Platform_Jiefa_Cal(Platform->flag);
 			break;
 		}
 		case Lever_middle: {
-			Platform_Set_ControlMode(Platform_Jiefa);
+			Platform_Set_ControlMode(Platform_Initpose);
 			Chassis_SetControlMode(Chassis_PC); 
 			Gimbal_StateSet(Gimbal_remote);  							
 			break;
 		}
-		case Lever_down: {
-			Platform_Set_ControlMode(Platform_Jiefa);	
+		case Lever_up: {
+			Platform_Set_ControlMode(Platform_Stop);	
 			Chassis_SetControlMode(Chassis_Remote); 
 			Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
 			Gimbal_StateSet(Gimbal_auto);
@@ -164,7 +166,7 @@ void Remote_RemoteProcessPlus() {
     switch (rc->s[3]) {
         case Lever_down: {
 			Platform_Set_ControlMode(Platform_Dianqiu);	
-      Platform_Dianqiu_Cal(1.0f, Lever_up);
+      Platform_Dianqiu_Cal(1.0f, Remote_SWITCH_DOWN);
 			// Chassis_SetControlMode(Chassis_PC);   
 			Gimbal_StateSet(Gimbal_auto);
 			break;
@@ -176,7 +178,7 @@ void Remote_RemoteProcessPlus() {
 			break;
         }
         case Lever_up: {
-			Platform_Set_ControlMode(Platform_Dianqiu);
+			Platform_Set_ControlMode(Platform_Stop);
 			// Chassis_SetControlMode(Chassis_Remote);
 			Chassis_Set_Speed(Chassis_Stop,0,0,0);
 			Gimbal_StateSet(Gimbal_auto);
@@ -194,11 +196,12 @@ void Remote_NucProcess() {
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
     
     switch (rc->s[3]) {
-        case Lever_down
+        case Lever_down // 手动击球
 					: {
             // 击球模式：执行快速上升-回落动作
             Platform_Set_ControlMode(Platform_Jiefa);
-            Platform_Jiefa_Cal(1.0f);
+						keep_state_flag = 1; // 保持状态标志，确保在击球动作完成前不被其他输入打断
+            Platform->flag = 1; // 触发击球动作的标志，Platform_Jiefa_Cal 内部会检测并执行
 						Gimbal_StateSet(Gimbal_auto);		
             break;
         }
