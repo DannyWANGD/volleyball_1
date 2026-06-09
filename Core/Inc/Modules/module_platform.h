@@ -102,7 +102,7 @@ typedef struct {
   Platform_TargetTypeDef tar; //目标数据
   Platform_PIDTypeDef pid; //PID参数
 
-	uint8_t flag;
+	float flag;
   float update_dt; //更新周期
   uint32_t last_update_tick; //上次更新时刻
   uint8_t error_code; //错误代码

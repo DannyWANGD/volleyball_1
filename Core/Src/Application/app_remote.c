@@ -201,7 +201,7 @@ void Remote_NucProcess() {
             // 击球模式：执行快速上升-回落动作
             Platform_Set_ControlMode(Platform_Jiefa);
 						keep_state_flag = 1; // 保持状态标志，确保在击球动作完成前不被其他输入打断
-            Platform->flag = 1; // 触发击球动作的标志，Platform_Jiefa_Cal 内部会检测并执行
+            Platform->flag = 1.0f; // ch[3]推上=轻击0.7 拉下=重击1.0
 						Gimbal_StateSet(Gimbal_auto);		
             break;
         }
@@ -212,8 +212,10 @@ void Remote_NucProcess() {
 						break;
         }
         case Lever_up: {
-            Platform_Set_ControlMode(Platform_Stop);		
-            Chassis_Set_Speed(Chassis_Stop,0,0,0);
+            Platform_Set_ControlMode(Platform_Jiefa);
+            keep_state_flag = 1;
+            Platform->flag = 0.7f;
+            // Chassis_Set_Speed(Chassis_Stop,0,0,0);
             Gimbal_StateSet(Gimbal_Off);
             break;
         }

@@ -231,6 +231,9 @@ void Platform_Update_Fdb() {
     Platform->fdb.front_pitch_angle = -58.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
 		Platform->fdb.left_pitch_angle  = -63.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
   	Platform->fdb.right_pitch_angle = -69.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
+//	    Platform->fdb.front_pitch_angle = -58.0f + Motor_Pitch_Front_Motor_A1.encoder.angle;
+//		Platform->fdb.left_pitch_angle  = -63.0f + Motor_Pitch_Left_Motor_A1.encoder.angle;
+//  	Platform->fdb.right_pitch_angle = -69.0f + Motor_Pitch_Right_Motor_A1.encoder.angle;
 	// A1 电机看门狗递增
 	Motor_Pitch_Front_Motor_A1.watchdog += 1;
     Motor_Pitch_Left_Motor_A1.watchdog += 1;
@@ -820,7 +823,7 @@ float cooldown_elapsed;
 // Jiefa 击球状态机参数
 #define JIEFA_MAX_TORQUE      33.0f   // 加速阶段最大力矩 (Nm)
 #define JIEFA_TORQUE      20.0     // 期望的初始力矩
-#define JIEFA_ALPHA_TARGET    42.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
+#define JIEFA_ALPHA_TARGET    40.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
 #define JIEFA_BRAKE_ANG_TOL   2.0f    // 刹车角度容差 (度)
 #define JIEFA_BRAKE_SPD_TOL   2.0f    // 刹车速度容差 (rad/s)
 #define JIEFA_RETURN_SPD_TOL  2.0f    // 返回阶段速度容差 (rad/s)
@@ -838,15 +841,18 @@ float cooldown_elapsed;
 static float jiefa_start_angle[3] = {0};  // 击球起始角度（绝对）
 static float jiefa_alpha[3] = {0};        // 刹车锁定角度（绝对）
 static float jiefa_last_trigger = -10.0f; // 上次触发时刻
-float keep_state_flag = 0.0f;
+static float jiefa_power = 1.0f;           // 击球力度因子
 
 void Platform_Jiefa_Cal(float hit) {
 
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
+		if(hit > 1.0f){
+			hit = 1.0f;
+		}
 
     // 修复1：不再盲目 return。
     // 如果已经在打击动作中（非 IDLE），即使 hit 不是 1.0f 也必须继续执行状态机直到动作闭环完成
-    if (hit_state == STATE_IDLE && hit != 1.0f) {
+    if (hit_state == STATE_IDLE && hit <= 0.0f) {
         return;
     }
 
@@ -855,6 +861,7 @@ void Platform_Jiefa_Cal(float hit) {
     // ===== STATE_IDLE: 等待触发（含 2s 冷却）=====
     if (hit_state == STATE_IDLE) {
         Platform->flag = 0.0f; // 收到指令立马消费，阻断连发
+        jiefa_power = hit;      // 锁定本次击球力度
 
         if (now - jiefa_last_trigger < JIEFA_COOLDOWN_S) return;
         jiefa_last_trigger = now;
@@ -908,7 +915,7 @@ void Platform_Jiefa_Cal(float hit) {
         } else {
             // 三电机平衡补偿后直接输出最大力矩
             float deadzone = 3.0f; // 误差死区，避免过度补偿导致震荡
-            float comp_gain = 5.0f; // 补偿增益，调整补偿力度（过大可能震荡，过小可能不够）
+            float comp_gain = 6.0f; // 补偿增益，调整补偿力度（过大可能震荡，过小可能不够）
             float ang_avg = (ang_f + ang_l + ang_r) / 3.0f;
             float diff_f = ang_avg - ang_f;
             float diff_l = ang_avg - ang_l;
@@ -921,9 +928,9 @@ void Platform_Jiefa_Cal(float hit) {
             if (fabsf(diff_r) < deadzone) diff_r = 0;
             else diff_r = (diff_r > 0) ? (diff_r - deadzone) : (diff_r + deadzone);
 
-            float t_f = JIEFA_TORQUE + diff_f * comp_gain;
-            float t_l = JIEFA_TORQUE + diff_l * comp_gain;
-            float t_r = JIEFA_TORQUE + diff_r * comp_gain;
+            float t_f = (JIEFA_TORQUE + diff_f * comp_gain) * jiefa_power;
+            float t_l = (JIEFA_TORQUE + diff_l * comp_gain) * jiefa_power;
+            float t_r = (JIEFA_TORQUE + diff_r * comp_gain) * jiefa_power;
 
             LimitMaxMin(t_f, JIEFA_MAX_TORQUE, -JIEFA_MAX_TORQUE);
             LimitMaxMin(t_l, JIEFA_MAX_TORQUE, -JIEFA_MAX_TORQUE);
