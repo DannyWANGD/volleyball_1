@@ -20,6 +20,8 @@
  
 Platform_DataTypeDef Platform_Data;
 HitState_t hit_state = STATE_IDLE;
+float keep_state_flag = 0.0f;
+float stop_state_initial_flag = 0.0f;
 
 // 前置声明（在初始化与更新入口中使用）
  static inline void Z_ApplyProfileAggressive(void);
@@ -829,6 +831,7 @@ float cooldown_elapsed;
 #define JIEFA_RETURN_SPD_TOL  2.0f    // 返回阶段速度容差 (rad/s)
 #define JIEFA_COOLDOWN_S      2.0f    // 两次击球最小间隔 (秒)
 #define JIEFA_FRONT_OFFSET    0.0f    // 前侧电机补偿角
+#define JIEFA_DELTA_DIFF_ABORT_DEG 20.0f // 旋转增量不匹配时的最大容差（度），超过则紧急中止击打动作
 
 //#define JIEFA_TORQUE      18.0     // 期望的初始力矩
 //#define JIEFA_ALPHA_TARGET    35.0f   // 加速旋转角度阈值 (度, 相对起始位置的增量)
@@ -867,6 +870,7 @@ void Platform_Jiefa_Cal(float hit) {
         jiefa_last_trigger = now;
 
         static uint8_t is_start_angle_recorded = 0;
+        if (stop_state_initial_flag == 1){ is_start_angle_recorded = 0; stop_state_initial_flag = 0;}
 
         // 记录击球起始的绝对角度
         if (is_start_angle_recorded == 0) {
@@ -890,7 +894,7 @@ void Platform_Jiefa_Cal(float hit) {
 
     // ===== STATE_RISING: 最大力矩加速直到旋转增量达到 alpha =====
     if (hit_state == STATE_RISING) {
-        float ang_f = Platform->fdb.front_pitch_angle-JIEFA_FRONT_OFFSET;
+        float ang_f = Platform->fdb.front_pitch_angle;
         float ang_l = Platform->fdb.left_pitch_angle;
         float ang_r = Platform->fdb.right_pitch_angle;
 
@@ -899,8 +903,25 @@ void Platform_Jiefa_Cal(float hit) {
         float delta_l = ang_l - jiefa_start_angle[1];
         float delta_r = ang_r - jiefa_start_angle[2];
         float avg_delta = (delta_f + delta_l + delta_r) / 3.0f;
+        float delta_diff_fl = fabsf(delta_f - delta_l);
+        float delta_diff_fr = fabsf(delta_f - delta_r);
+        float delta_diff_lr = fabsf(delta_l - delta_r);
+        uint8_t is_delta_mismatch =
+            (delta_diff_fl > JIEFA_DELTA_DIFF_ABORT_DEG) ||
+            (delta_diff_fr > JIEFA_DELTA_DIFF_ABORT_DEG) ||
+            (delta_diff_lr > JIEFA_DELTA_DIFF_ABORT_DEG);
 
-        if (avg_delta >= JIEFA_ALPHA_TARGET) {
+        if (is_delta_mismatch) {
+            Platform_Set_Target_Pos(0, 0, Initial_Z_Position, 0, 0, 0);
+            PID_ClearPID(&Platform->pid.Pitch1_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch1_Spd_PID);
+            PID_ClearPID(&Platform->pid.Pitch2_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch2_Spd_PID);
+            PID_ClearPID(&Platform->pid.Pitch3_Ang_PID);
+            PID_ClearPID(&Platform->pid.Pitch3_Spd_PID);
+            hit_state = STATE_RETURNING;
+
+        } else if (avg_delta >= JIEFA_ALPHA_TARGET) {
             // 锁定当前绝对角度作为刹车目标
             jiefa_alpha[0] = ang_f-5.0f;
             jiefa_alpha[1] = ang_l-5.0f;
@@ -1144,6 +1165,9 @@ void Platform_Control() {
 			break;
 		case Platform_Stop:
 			Platform_Set_OutputState(Platform_stop);
+            Platform->flag = 0.0f;
+            stop_state_initial_flag = 1;
+            hit_state = STATE_IDLE;
 			// 直接将 A1 电机力矩设为 0（不通过 PID）
 			Motor_SetMotorOutput(&Motor_Pitch_Front_Motor_A1, 0.0f);
 			Motor_SetMotorOutput(&Motor_Pitch_Left_Motor_A1, 0.0f);

@@ -114,6 +114,7 @@ typedef enum { STATE_IDLE = 0, STATE_RISING = 1, STATE_BRAKING = 2, STATE_RETURN
 extern Platform_DataTypeDef Platform_Data;
 extern HitState_t hit_state;
 extern float keep_state_flag;
+extern float stop_state_initial_flag;
 Platform_DataTypeDef* Platform_GetPlatformPtr(void);
 void Platform_Init();
 void Platform_Update_Fdb();

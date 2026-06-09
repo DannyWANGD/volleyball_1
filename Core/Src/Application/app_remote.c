@@ -19,8 +19,6 @@
 #include "module_chassis.h"
 #include "comm_receive.h"
 
-extern float keep_state_flag;
-
 Remote_RemoteControlTypeDef Remote_remoteControlData;
 
 /**
