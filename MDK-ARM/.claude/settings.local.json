@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(cd \"d:/时光存折/2025-2026学年大二下学期资料/20260802 Robocon 代码部分汇总/RoboCon2026 排球/前车板\" && grep -nE \"USART6|Dma|DMA|USART6_\" testa1.ioc)",
+      "Read(//d/时光存折/2025-2026学年大二下学期资料/20260802 Robocon 代码部分汇总/RoboCon2026 排球/前车板/**)"
     ]
   }
 }

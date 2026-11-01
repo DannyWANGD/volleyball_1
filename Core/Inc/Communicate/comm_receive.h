@@ -18,7 +18,8 @@ extern "C" {
 
 #include "main.h"
 #include "periph_remote.h"
-#define Const_Comm_Receive_BUFF_SIZE 3
+#define Const_Comm_Receive_BUFF_SIZE 4
+// #define Const_Comm_Receive_BUFF_SIZE 4
 #define SBUS_DATANUM 16
 #define SBUS_RAWDATA 25
 #define ROCKER_NUM 4

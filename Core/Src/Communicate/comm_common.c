@@ -184,13 +184,20 @@ static uint8_t Comm_MergeAndverify(uint8_t buff[], uint32_t rxdatalen) {
         if (buff[i] == 0x5A && buff[i+1] == 0xA5) {
             
             // 2. 如果长度够 47，我们进行严格校验
-            if (i + 47 <= rxdatalen) {
-                if (buff[i + 45] == 0x7A && buff[i + 46] == 0xA7) {
-                    // 只有完全匹配才拷贝
-                    memcpy(buscomm->UART_Buff, &buff[i], 47);
-                    return 1;
-                }
-            } 
+//            if (i + 47 <= rxdatalen) {
+//                if (buff[i + 45] == 0x7A && buff[i + 46] == 0xA7) {
+//                    // 只有完全匹配才拷贝
+//                    memcpy(buscomm->UART_Buff, &buff[i], 47);
+//                    return 1;
+//                }
+//            } 
+            if (i + 55 <= rxdatalen) {
+                 if (buff[i + 53] == 0x7A && buff[i + 54] == 0xA7) {
+                     // 只有完全匹配才拷贝
+                     memcpy(buscomm->UART_Buff, &buff[i], 55);
+                     return 1;
+                 }
+             } 
     
         }
     }

@@ -56,17 +56,17 @@ Remote_RemoteControlTypeDef* Remote_GetControlDataPtr() {
 
 /*
 遥控器键位
-UU	平台自动接发	云台自动 	底盘自动				imu
-UM 	平台自动接发 	云台自动 	底盘自动 	给上位机发1	imu
-UD	平台自动接发 	云台自动 	底盘遥控				imu
+UU	平台零力矩
+UM 	平台初始化 Initpose
+UD	平台手动击打（小力）
 
-MU	平台自动垫球 模式1 	云台自动 	底盘自动				imu
-MM	平台自动垫球 模式2 	云台自动 	底盘自动 	给上位机发1	imu
-MD	平台自动垫球 模式3 	云台自动 	底盘遥控				imu
+MU	平台自动击打
+MM	平台初始化 Initpose
+MD	平台手动击打（大力）
 
-DU	平台遥控 	无云台   	底盘停止
-DM	平台停止 	云台遥控 	底盘停止
-DD	全关
+DU	平台 Dianqiu 击打
+DM	平台初始化 Initpose
+DD	平台手动击打（大力）
 */
 
 
@@ -124,24 +124,18 @@ void Remote_RemoteProcess() {
 	Gimbal_TypeDef *gimbal = Gimbal_GetPtr();
 	
 	switch (rc->s[3]) {
-		case Lever_down: {
-			Platform_Set_ControlMode(Platform_Jiefa);	
-			keep_state_flag = 0.0f;
-			Chassis_SetControlMode(Chassis_PC);
-			Gimbal_StateSet(Gimbal_auto);
-			break;
-		}
-		case Lever_middle: {
-			Platform_Set_ControlMode(Platform_Initpose);
-			Chassis_SetControlMode(Chassis_PC); 
-			Gimbal_StateSet(Gimbal_remote);  							
-			break;
-		}
-		case Lever_up: {
+		case Lever_up: { // 零力矩
 			Platform_Set_ControlMode(Platform_Stop);	
-			Chassis_SetControlMode(Chassis_Remote); 
-			Chassis_Set_Speed(Chassis_Run, data->remote.ch[2]/660.0f * 3.0f,data->remote.ch[3]/660.0f * 3.0f,data->remote.ch[0]/660.0f * 3.0f); 
-			Gimbal_StateSet(Gimbal_auto);
+			break;
+		}
+		case Lever_middle: { // 初始化
+			Platform_Set_ControlMode(Platform_Initpose); 							
+			break;
+		}
+		case Lever_down: { // 手动 大力击打
+			Platform_Set_ControlMode(Platform_Jiefa);
+			keep_state_flag = 1.0f;
+			Platform->flag = 1.0f;
 			break;
     }
     default:
@@ -162,28 +156,29 @@ void Remote_RemoteProcessPlus() {
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
     
     switch (rc->s[3]) {
-        case Lever_down: {
-			Platform_Set_ControlMode(Platform_Dianqiu);	
-      Platform_Dianqiu_Cal(1.0f, Remote_SWITCH_DOWN);
-			// Chassis_SetControlMode(Chassis_PC);   
-			Gimbal_StateSet(Gimbal_auto);
-			break;
-        }
-        case Lever_middle: {
-			Platform_Set_ControlMode(Platform_Initpose);	
-			// Chassis_SetControlMode(Chassis_PC);   
-			Gimbal_StateSet(Gimbal_auto);
-			break;
-        }
-        case Lever_up: {
-			Platform_Set_ControlMode(Platform_Stop);
-			// Chassis_SetControlMode(Chassis_Remote);
-			Chassis_Set_Speed(Chassis_Stop,0,0,0);
-			Gimbal_StateSet(Gimbal_auto);
-			break;
-        }
-        default:
-			break;
+			
+			case Lever_up: { // 手动 前场颠球
+				Platform_Set_ControlMode(Platform_Dianqiu);	
+				Platform_Dianqiu_Cal(1.0f, Remote_SWITCH_DOWN);	
+				break;
+			}
+			case Lever_middle: { // 自动 大力击打
+				Platform_Set_ControlMode(Platform_Jiefa);	
+				keep_state_flag = 0.0f;
+				Chassis_SetControlMode(Chassis_PC);	
+				break;
+			}
+			case Lever_down: { // 手动 大力击打
+				Platform_Set_ControlMode(Platform_Jiefa);
+				keep_state_flag = 1.0f;
+				Platform->flag = 1.0f;
+//				Platform_Set_ControlMode(Platform_Jiefa);	
+//				keep_state_flag = 0.0f;
+//				Chassis_SetControlMode(Chassis_PC);	
+				break;
+			}
+			default:
+				break;
     }
 }
 
@@ -194,30 +189,22 @@ void Remote_NucProcess() {
     Platform_DataTypeDef *Platform = Platform_GetPlatformPtr();
     
     switch (rc->s[3]) {
-        case Lever_down // 手动击球
-					: {
-            // 击球模式：执行快速上升-回落动作
-            Platform_Set_ControlMode(Platform_Jiefa);
-						keep_state_flag = 1; // 保持状态标志，确保在击球动作完成前不被其他输入打断
-            Platform->flag = 1.0f; // ch[3]推上=轻击0.7 拉下=重击1.0
-						Gimbal_StateSet(Gimbal_auto);		
-            break;
-        }
-        case Lever_middle: {
-            // Platform_Set_Target_Pos(0,0,Initial_Z_Position,0,0,0);
-            Platform_Set_ControlMode(Platform_Initpose);  
-						Gimbal_StateSet(Gimbal_auto);
-						break;
-        }
-        case Lever_up: {
-            Platform_Set_ControlMode(Platform_Jiefa);
-            keep_state_flag = 1;
-            Platform->flag = 0.7f;
-            // Chassis_Set_Speed(Chassis_Stop,0,0,0);
-            Gimbal_StateSet(Gimbal_Off);
-            break;
-        }
-        default:
-            break;
+			case Lever_up: { // 手动 前场颠球
+					Platform_Set_ControlMode(Platform_Dianqiu);	
+					Platform_Dianqiu_Cal(1.0f, Remote_SWITCH_DOWN);		
+					break;
+			}
+			case Lever_middle: { // 初始化
+					Platform_Set_ControlMode(Platform_Initpose);  
+					break;
+			}
+			case Lever_down: { // 手动 大力击打
+					Platform_Set_ControlMode(Platform_Jiefa);
+					keep_state_flag = 1.0f;
+					Platform->flag = 1.0f;
+					break;
+			}
+			default:
+					break;
     }
 }

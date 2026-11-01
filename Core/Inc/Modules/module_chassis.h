@@ -49,9 +49,11 @@ typedef struct {
   float vx;
   float vy;
   float vw;
+	float y;
 
   float update_dt;
   uint32_t last_update_tick;
+  float y_rx_time;// 上一刻接受底盘数据的时间
 
   CAN_TxHeaderTypeDef can_header;
   CAN_HandleTypeDef* can_handle;

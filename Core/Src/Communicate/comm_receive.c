@@ -19,13 +19,15 @@
 #include "app_gimbal.h"
 #include "module_chassis.h"
 #include "sys_const.h"
+#include "sys_dwt.h"
+
 // Platform data receive function
 // 参数: buff 接收到的数据缓冲区指针
 // 返回值: uint32_t 实际处理的数据长度
 static uint32_t _set_Platform_Data_(uint8_t *buff); 
 static uint32_t _set_Platform_Data_1(uint8_t *buff); 
 static uint32_t _set_Gimbal_Data_(uint8_t *buff);
-static uint32_t _set_Chassis_Data_(uint8_t *buff); // Chassis data receive function
+static uint32_t _get_Chassis_Data_(uint8_t *buff); // Chassis data receive function
 static uint32_t _set_Remote_Data_(uint8_t *buff);
 Filter_WindowTypeDef avg_filter;
 Remote_DataTypeDef Remote_Data;
@@ -40,9 +42,20 @@ float roll;
 Comm_ReceiveEntry CommCmd_Receive[Const_Comm_Receive_BUFF_SIZE] = {
   	{&_set_Remote_Data_    },
 		{&_set_Gimbal_Data_},
-		{&_set_Platform_Data_}
+		{&_set_Platform_Data_},
+    {&_get_Chassis_Data_}
 };
 
+static uint32_t _get_Chassis_Data_(uint8_t *buff)
+{
+      Chassis_DataTypeDef *Chassis = Chassis_GetChassisPtr();
+      Comm_DataTypeDef *buscomm = Comm_GetBusDataPtr();
+      Chassis->vy = buff2float(&buscomm->UART_Buff[45]);
+			Chassis->y = buff2float(&buscomm->UART_Buff[49]);
+      Chassis->y_rx_time = DWT_GetTimeline_s();
+      // Chassis->vx = buff2float(buff);
+      return 8;
+}
 Remote_DataTypeDef *Remote_GetRemotePtr(void) { return &Remote_Data; }
 
 static uint32_t _set_Remote_Data_(uint8_t *buff)
@@ -108,7 +121,8 @@ static uint32_t _set_Platform_Data_(uint8_t *buff) {
 	  Platform->flag = buff2float(&buscomm->UART_Buff[41]);
     float pc_cmd = buff2float(&buscomm->UART_Buff[41]);
     if (pc_cmd == 1.0f) {
-      Platform->flag = 1.0f; // 如果上位机下达击打命令，置1
+			Platform->flag = 1.0f; // 如果上位机下达击打命令，置1
+			
     }
   }
 
